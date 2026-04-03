@@ -56,13 +56,10 @@ export default function TransactionDetailPage({ params }: { params: { id: string
 
   return (
     <div className="max-w-2xl space-y-6 animate-in">
-      {/* Back */}
       <Link href="/transactions" className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
         Transactions
       </Link>
-
-      {/* Header card */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -78,8 +75,6 @@ export default function TransactionDetailPage({ params }: { params: { id: string
               </p>
             </div>
           </div>
-
-          {/* Status */}
           <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
             tx.status === "PAID" ? "bg-green-50 text-green-700" :
             tx.status === "OVERDUE" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"
@@ -87,8 +82,6 @@ export default function TransactionDetailPage({ params }: { params: { id: string
             {tx.status.charAt(0) + tx.status.slice(1).toLowerCase()}
           </span>
         </div>
-
-        {/* Amount breakdown */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-gray-50 rounded-xl p-4">
             <p className="text-xs text-gray-400 mb-1">Principal</p>
@@ -110,8 +103,6 @@ export default function TransactionDetailPage({ params }: { params: { id: string
             </p>
           </div>
         </div>
-
-        {/* Due date */}
         <div className="flex items-center justify-between py-3 border-t border-gray-50">
           <span className="text-sm text-gray-500">Due date</span>
           <div className="text-right">
@@ -125,14 +116,12 @@ export default function TransactionDetailPage({ params }: { params: { id: string
             )}
           </div>
         </div>
-
         {tx.paidAt && (
           <div className="flex items-center justify-between py-3 border-t border-gray-50">
             <span className="text-sm text-gray-500">Paid on</span>
             <span className="text-sm font-medium text-green-600">{formatDate(tx.paidAt)}</span>
           </div>
         )}
-
         {tx.notes && (
           <div className="mt-4 pt-4 border-t border-gray-50">
             <p className="text-xs text-gray-400 mb-1">Notes</p>
@@ -140,8 +129,6 @@ export default function TransactionDetailPage({ params }: { params: { id: string
           </div>
         )}
       </div>
-
-      {/* Actions */}
       <div className="flex gap-3">
         <button
           onClick={markPaid}
@@ -169,7 +156,6 @@ export default function TransactionDetailPage({ params }: { params: { id: string
           Delete
         </button>
       </div>
-
       {editing && (
         <TransactionForm
           initial={tx}
