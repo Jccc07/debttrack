@@ -7,7 +7,7 @@ import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
 import TransactionForm from "@/components/TransactionForm";
 import Link from "next/link";
 
-export default function TransactionDetailPage({ params }: { params: { id: string } }) {
+export default function TransactionDetailPage({ params }: { params: { id: string } | Promise<{ id: string }> }) {
   const router = useRouter();
   const [tx, setTx] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(true);
