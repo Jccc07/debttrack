@@ -1,13 +1,14 @@
 "use client";
 // src/app/(dashboard)/transactions/[id]/page.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { Transaction } from "@/types";
 import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
 import TransactionForm from "@/components/TransactionForm";
 import Link from "next/link";
 
-export default function TransactionDetailPage({ params }: { params: { id: string } | Promise<{ id: string }> }) {
+export default function TransactionDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const router = useRouter();
   const [tx, setTx] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(true);
@@ -15,11 +16,11 @@ export default function TransactionDetailPage({ params }: { params: { id: string
   const [marking, setMarking] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/transactions/${params.id}`)
+    fetch(`/api/transactions/${id}`)
       .then((r) => { if (!r.ok) router.push("/transactions"); return r.json(); })
       .then(setTx)
       .finally(() => setLoading(false));
-  }, [params.id, router]);
+  }, [id, router]);
 
   async function markPaid() {
     if (!tx) return;
@@ -37,7 +38,7 @@ export default function TransactionDetailPage({ params }: { params: { id: string
 
   async function deleteTransaction() {
     if (!confirm("Delete this transaction? This cannot be undone.")) return;
-    await fetch(`/api/transactions/${params.id}`, { method: "DELETE" });
+    await fetch(`/api/transactions/${id}`, { method: "DELETE" });
     router.push("/transactions");
   }
 
