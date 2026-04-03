@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const amount = Number(body.amount ?? existing.amount);
     const rate = Number(body.interestRate ?? existing.interestRate);
     const iType = body.interestType ?? existing.interestType;
-    endAmount = computeEndAmount(amount, rate, iType as "PERCENT" | "FLAT");
+    endAmount = computeEndAmount(amount, rate, iType as "PERCENT" | "FLAT") as any;
   }
   const updated = await prisma.transaction.update({
     where: { id },
