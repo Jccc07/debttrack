@@ -1,6 +1,6 @@
 "use client";
 // src/app/(dashboard)/transactions/page.tsx
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Transaction, TransactionFilters } from "@/types";
 import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
@@ -54,7 +54,7 @@ function exportCSV(transactions: Transaction[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function TransactionsPage() {
+function TransactionsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -356,5 +356,13 @@ export default function TransactionsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function TransactionsPage() {
+  return (
+    <Suspense>
+      <TransactionsPageInner />
+    </Suspense>
   );
 }
