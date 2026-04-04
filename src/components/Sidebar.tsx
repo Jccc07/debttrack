@@ -51,102 +51,112 @@ export default function Sidebar({ user, open, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Backdrop (mobile) */}
+      {/* Dark overlay — mobile only, shown when sidebar is open */}
       {open && (
         <div
-          className="fixed inset-0 z-20 bg-black/20 md:hidden"
+          className="fixed inset-0 z-20 bg-black/25 md:hidden"
           onClick={onClose}
         />
       )}
 
-      {/* Sidebar panel */}
+      {/*
+        Sidebar panel.
+        - Always rendered in the DOM so transitions work.
+        - On mobile: fixed, slides in/out with translateX.
+        - On desktop: part of the flex row, width transitions between 240px and 0.
+        - We use inline style for width so Tailwind's JIT doesn't purge the value.
+      */}
       <aside
-        className={`
-          fixed md:static inset-y-0 left-0 z-30
-          flex flex-col bg-white border-r border-gray-100
-          transition-transform duration-300 ease-in-out
-          ${open ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
-        `}
-        style={{ width: 240, minWidth: 240 }}
+        style={{
+          width: open ? 240 : 0,
+          minWidth: open ? 240 : 0,
+          transition: "width 0.25s ease, min-width 0.25s ease",
+          overflow: "hidden",
+        }}
+        className="relative z-30 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col h-full"
       >
-        {/* Logo + close button */}
-        <div className="px-5 py-5 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-green-600 rounded-lg flex items-center justify-center flex-shrink-0">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2L14 5v6L8 14 2 11V5L8 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-                <path d="M8 8l3-1.5M8 8v4M8 8L5 6.5" stroke="white" strokeWidth="1.2" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <span className="font-semibold text-gray-900 text-base">DebtTrack</span>
-          </div>
-          {/* Close button — always visible to close sidebar */}
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
-            title="Close sidebar"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </button>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-0.5">
-          {navItems.map((item) => {
-            const active =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href));
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-green-50 text-green-700"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                }`}
-              >
-                <span className={active ? "text-green-600" : "text-gray-400"}>{item.icon}</span>
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* User + sign out */}
-        <div className="px-3 py-4 border-t border-gray-100">
-          <div className="flex items-center gap-3 px-3 py-2 mb-1">
-            {user.image ? (
-              <Image
-                src={user.image}
-                alt={user.name}
-                width={28}
-                height={28}
-                className="rounded-full"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-xs font-semibold text-green-700 flex-shrink-0">
-                {user.name?.charAt(0)?.toUpperCase() ?? "?"}
+        {/* Inner wrapper — fixed width so content doesn't squish during animation */}
+        <div style={{ width: 240, minWidth: 240 }} className="flex flex-col h-full">
+          {/* Logo + close button */}
+          <div className="px-5 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 bg-green-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 2L14 5v6L8 14 2 11V5L8 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
+                  <path d="M8 8l3-1.5M8 8v4M8 8L5 6.5" stroke="white" strokeWidth="1.2" strokeLinecap="round"/>
+                </svg>
               </div>
-            )}
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-              <p className="text-xs text-gray-400 truncate">{user.email}</p>
+              <span className="font-semibold text-gray-900 text-base whitespace-nowrap">DebtTrack</span>
             </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors flex-shrink-0"
+              title="Close sidebar"
+            >
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+                <path d="M3 3l9 9M12 3L3 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </button>
           </div>
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-gray-400">
-              <path d="M6 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-              <path d="M10 11l3-3-3-3M13 8H6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Sign out
-          </button>
+
+          {/* Nav links */}
+          <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+            {navItems.map((item) => {
+              const active =
+                pathname === item.href ||
+                (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onClose}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
+                    active
+                      ? "bg-green-50 text-green-700"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  <span className={`flex-shrink-0 ${active ? "text-green-600" : "text-gray-400"}`}>
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* User info + sign out */}
+          <div className="px-3 py-4 border-t border-gray-100 flex-shrink-0">
+            <div className="flex items-center gap-3 px-3 py-2 mb-1">
+              {user.image ? (
+                <Image
+                  src={user.image}
+                  alt={user.name}
+                  width={28}
+                  height={28}
+                  className="rounded-full flex-shrink-0"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center text-xs font-semibold text-green-700 flex-shrink-0">
+                  {user.name?.charAt(0)?.toUpperCase() ?? "?"}
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
+                <p className="text-xs text-gray-400 truncate">{user.email}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors whitespace-nowrap"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-gray-400 flex-shrink-0">
+                <path d="M6 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                <path d="M10 11l3-3-3-3M13 8H6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
     </>

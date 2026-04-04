@@ -10,14 +10,15 @@ export function computeEndAmount(
 }
 
 export function formatCurrency(value: number | string): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  const num = Number(value);
+  return "₱" + num.toLocaleString("en-PH", {
     minimumFractionDigits: 2,
-  }).format(Number(value));
+    maximumFractionDigits: 2,
+  });
 }
 
-export function formatDate(date: Date | string): string {
+export function formatDate(date: Date | string | null | undefined): string {
+  if (!date) return "No due date";
   return new Date(date).toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
@@ -25,11 +26,13 @@ export function formatDate(date: Date | string): string {
   });
 }
 
-export function isOverdue(dueDate: Date | string, status: string): boolean {
+export function isOverdue(dueDate: Date | string | null | undefined, status: string): boolean {
+  if (!dueDate) return false;
   return status !== "PAID" && new Date(dueDate) < new Date();
 }
 
-export function getDaysUntilDue(dueDate: Date | string): number {
+export function getDaysUntilDue(dueDate: Date | string | null | undefined): number | null {
+  if (!dueDate) return null;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const due = new Date(dueDate);
