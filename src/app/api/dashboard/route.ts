@@ -30,13 +30,17 @@ export async function GET() {
     .filter((t) => t.type === "OWE" && t.status !== "PAID")
     .reduce((sum, t) => sum + Number(t.amount), 0);
 
+  // Total money owed including interest (endAmount)
+  const totalOwedWithInterest = transactions
+    .filter((t) => t.type === "OWE" && t.status !== "PAID")
+    .reduce((sum, t) => sum + Number(t.endAmount), 0);
+
   const totalExpectedReturn = transactions
     .filter((t) => t.type === "LEND" && t.status !== "PAID")
     .reduce((sum, t) => sum + Number(t.endAmount), 0);
 
   const overdueCount = transactions.filter((t) => t.status === "OVERDUE").length;
 
-  // Monthly data for chart (last 6 months)
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
@@ -47,10 +51,7 @@ export async function GET() {
 
   const monthlyMap: Record<string, { lent: number; owed: number }> = {};
   monthlyTransactions.forEach((t) => {
-    const key = new Date(t.transactionDate).toLocaleDateString("en-US", {
-      month: "short",
-      year: "2-digit",
-    });
+    const key = new Date(t.transactionDate).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
     if (!monthlyMap[key]) monthlyMap[key] = { lent: 0, owed: 0 };
     if (t.type === "LEND") monthlyMap[key].lent += Number(t.amount);
     else monthlyMap[key].owed += Number(t.amount);
@@ -59,11 +60,7 @@ export async function GET() {
   const chartData = Object.entries(monthlyMap).map(([month, data]) => ({ month, ...data }));
 
   return NextResponse.json({
-    totalLent,
-    totalOwed,
-    totalExpectedReturn,
-    overdueCount,
-    recentTransactions,
-    chartData,
+    totalLent, totalOwed, totalOwedWithInterest,
+    totalExpectedReturn, overdueCount, recentTransactions, chartData,
   });
 }

@@ -31,8 +31,17 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const daysLeft = getDaysUntilDue(tx.dueDate);
   const interest = Number(tx.endAmount) - Number(tx.amount);
 
+  async function refreshTx() {
+    const res = await fetch(`/api/transactions/${tx.id}`);
+    if (res.ok) {
+      const updated = await res.json();
+      setTx(updated);
+      onUpdated(updated);
+    }
+  }
+
   async function togglePaid() {
-    if (tx.isInstallment) return; // installments are toggled individually
+    if (tx.isInstallment) return;
     setMarking(true);
     const newStatus = tx.status === "PAID" ? "UNPAID" : "PAID";
     const res = await fetch(`/api/transactions/${tx.id}`, {
@@ -53,11 +62,8 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
       body: JSON.stringify({ status: currentStatus === "PAID" ? "UNPAID" : "PAID" }),
     });
     if (!res.ok) return;
-    // Refresh transaction data
-    const txRes = await fetch(`/api/transactions/${tx.id}`);
-    const updated = await txRes.json();
-    setTx(updated);
-    onUpdated(updated);
+    // Refresh the full transaction including updated installments
+    await refreshTx();
   }
 
   async function handleDelete() {
@@ -142,7 +148,9 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               <div className="flex items-center justify-between py-3 border-t border-gray-50">
                 <span className="text-sm text-gray-500">Due date</span>
                 <div className="text-right">
-                  <span className="text-sm font-medium text-gray-900">{formatDate(tx.dueDate)}</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {tx.dueDate ? formatDate(tx.dueDate) : "No due date"}
+                  </span>
                   {tx.dueDate && tx.status !== "PAID" && daysLeft !== null && (
                     <span className={`ml-2 text-xs ${daysLeft < 0 ? "text-red-500" : daysLeft <= 3 ? "text-amber-600" : "text-gray-400"}`}>
                       {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? "due today" : `${daysLeft}d left`}

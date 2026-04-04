@@ -84,7 +84,11 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
     } else {
-      if (!isExistingInstallment) {
+      if (isExistingInstallment) {
+        // Allow updating installment months and method on edit
+        payload.installmentMonths = parseInt(form.installmentMonths);
+        payload.installmentMethod = form.installmentMethod;
+      } else {
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
     }
@@ -159,18 +163,16 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           </div>
 
-          {/* Installment toggle — show always, but locked if already an installment on edit */}
+          {/* Installment toggle — disabled on edit if already installment */}
           <div>
             <div className={`flex items-center justify-between py-3 px-4 rounded-xl border ${
-              isExistingInstallment
-                ? "bg-purple-50/50 border-purple-100 opacity-70"
-                : "bg-purple-50 border-purple-100"
+              isExistingInstallment ? "bg-purple-50/50 border-purple-100" : "bg-purple-50 border-purple-100"
             }`}>
               <div>
                 <p className="text-sm font-medium text-purple-900">Installment plan</p>
                 <p className="text-xs text-purple-600 mt-0.5">
                   {isExistingInstallment
-                    ? "Installment structure cannot be changed after creation"
+                    ? "Enabled — you can update months and rate below"
                     : "Split into monthly payments"}
                 </p>
               </div>
@@ -180,19 +182,17 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 onClick={() => !isExistingInstallment && setForm({ ...form, isInstallment: !form.isInstallment })}
                 className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
                   form.isInstallment ? "bg-purple-600" : "bg-gray-200"
-                } ${isExistingInstallment ? "cursor-not-allowed" : "cursor-pointer"}`}
+                } ${isExistingInstallment ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
               >
-                <span
-                  className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                    form.isInstallment ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
+                <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                  form.isInstallment ? "translate-x-6" : "translate-x-1"
+                }`} />
               </button>
             </div>
           </div>
 
-          {/* Installment options — new transactions only */}
-          {form.isInstallment && !isExistingInstallment && (
+          {/* Installment options — shown for new installments OR editing existing ones */}
+          {form.isInstallment && (
             <div className="space-y-3 bg-purple-50/50 rounded-xl p-4 border border-purple-100">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -276,6 +276,14 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {isExistingInstallment && (
+                <div className="bg-amber-50 rounded-xl px-3 py-2.5 border border-amber-100">
+                  <p className="text-xs text-amber-700">
+                    <span className="font-semibold">Note:</span> Changing months or rate will update the payment schedule. Already paid installments won't be affected.
+                  </p>
                 </div>
               )}
             </div>

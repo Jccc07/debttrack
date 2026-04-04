@@ -9,6 +9,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 
 interface DashboardData {
   totalLent: number; totalOwed: number; totalExpectedReturn: number;
+  totalOwedWithInterest: number;
   overdueCount: number; recentTransactions: Transaction[];
   chartData: { month: string; lent: number; owed: number }[];
 }
@@ -50,6 +51,9 @@ export default function DashboardClient() {
   if (loading) return <div className="flex items-center justify-center h-64"><span className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full spinner" /></div>;
   if (!data) return null;
 
+  // Use totalOwedWithInterest if available, fallback to totalOwed
+  const owedDisplay = data.totalOwedWithInterest ?? data.totalOwed;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -65,7 +69,7 @@ export default function DashboardClient() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total lent" value={formatCurrency(data.totalLent)} sub="Outstanding principal" color="text-blue-600" />
-        <StatCard label="Total borrowed" value={formatCurrency(data.totalOwed)} sub="What you owe" color="text-red-500" />
+        <StatCard label="Total money owed" value={formatCurrency(owedDisplay)} sub="Principal + interest" color="text-red-500" />
         <StatCard label="Expected return" value={formatCurrency(data.totalExpectedReturn)} sub="Principal + interest" color="text-green-600" />
         <StatCard label="Overdue" value={String(data.overdueCount)} sub={data.overdueCount === 1 ? "transaction" : "transactions"} color={data.overdueCount > 0 ? "text-red-600" : "text-gray-900"} />
       </div>
