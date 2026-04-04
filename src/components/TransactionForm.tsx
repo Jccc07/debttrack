@@ -14,6 +14,7 @@ const today = new Date().toISOString().split("T")[0];
 
 export default function TransactionForm({ onClose, onSaved, initial }: TransactionFormProps) {
   const isEdit = !!initial?.id;
+
   const [form, setForm] = useState({
     type: (initial?.type ?? "LEND") as TransactionType,
     amount: String(initial?.amount ?? ""),
@@ -27,7 +28,9 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     dueDate: initial?.dueDate
       ? new Date(initial.dueDate).toISOString().split("T")[0]
       : today,
+    noDueDate: !initial?.dueDate && !!initial?.id, // if editing and dueDate is null
   });
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,9 +50,14 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...form,
+        type: form.type,
         amount: Number(form.amount),
         interestRate: Number(form.interestRate),
+        interestType: form.interestType,
+        counterparty: form.counterparty || null,
+        notes: form.notes || null,
+        transactionDate: form.transactionDate,
+        dueDate: form.noDueDate ? null : form.dueDate,
       }),
     });
 
@@ -70,64 +78,84 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-xl w-full max-w-md animate-in">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-xl w-full max-w-md animate-in max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
           <h2 className="text-base font-semibold text-gray-900">
             {isEdit ? "Edit transaction" : "Add transaction"}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-50">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-50"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {error && (
-            <div className="bg-red-50 border border-red-100 text-red-700 text-sm px-3 py-2 rounded-lg">{error}</div>
+            <div className="bg-red-50 border border-red-100 text-red-700 text-sm px-3 py-2 rounded-lg">
+              {error}
+            </div>
           )}
 
           {/* Type toggle */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Type</label>
             <div className="grid grid-cols-2 gap-2">
-              {(["LEND", "OWE"] as TransactionType[]).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setForm({ ...form, type: t })}
-                  className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
-                    form.type === t
-                      ? t === "LEND"
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "bg-red-500 border-red-500 text-white"
-                      : "border-gray-200 text-gray-500 hover:border-gray-300"
-                  }`}
-                >
-                  {t === "LEND" ? "↑ I lent" : "↓ I owe"}
-                </button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, type: "LEND" })}
+                className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                  form.type === "LEND"
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "border-gray-200 text-gray-500 hover:border-gray-300"
+                }`}
+              >
+                ↑ Lent
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, type: "OWE" })}
+                className={`py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                  form.type === "OWE"
+                    ? "bg-red-500 border-red-500 text-white"
+                    : "border-gray-200 text-gray-500 hover:border-gray-300"
+                }`}
+              >
+                ↓ Borrowed
+              </button>
             </div>
           </div>
 
           {/* Amount */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Amount ($)</label>
-            <input
-              type="number"
-              required
-              min="0.01"
-              step="0.01"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
-              placeholder="0.00"
-            />
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              Amount (₱)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">₱</span>
+              <input
+                type="number"
+                required
+                min="0.01"
+                step="0.01"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                placeholder="0.00"
+              />
+            </div>
           </div>
 
           {/* Interest */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Interest</label>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                Interest
+              </label>
               <input
                 type="number"
                 min="0"
@@ -139,14 +167,16 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Type</label>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                Type
+              </label>
               <select
                 value={form.interestType}
                 onChange={(e) => setForm({ ...form, interestType: e.target.value as InterestType })}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition bg-white"
               >
                 <option value="PERCENT">% Percent</option>
-                <option value="FLAT">$ Flat fee</option>
+                <option value="FLAT">₱ Flat fee</option>
               </select>
             </div>
           </div>
@@ -161,7 +191,9 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
 
           {/* Counterparty */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Person / Company</label>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              Person / Company
+            </label>
             <input
               type="text"
               value={form.counterparty}
@@ -171,33 +203,57 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             />
           </div>
 
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Transaction date</label>
-              <input
-                type="date"
-                required
-                value={form.transactionDate}
-                onChange={(e) => setForm({ ...form, transactionDate: e.target.value })}
-                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
-              />
+          {/* Transaction date */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              Transaction date
+            </label>
+            <input
+              type="date"
+              required
+              value={form.transactionDate}
+              onChange={(e) => setForm({ ...form, transactionDate: e.target.value })}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+            />
+          </div>
+
+          {/* Due date */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Due date
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.noDueDate}
+                  onChange={(e) => setForm({ ...form, noDueDate: e.target.checked })}
+                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                />
+                <span className="text-xs text-gray-500">No due date</span>
+              </label>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Due date</label>
+            {!form.noDueDate && (
               <input
                 type="date"
-                required
+                required={!form.noDueDate}
                 value={form.dueDate}
                 onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
               />
-            </div>
+            )}
+            {form.noDueDate && (
+              <div className="px-3 py-2.5 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400">
+                No due date set
+              </div>
+            )}
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Notes <span className="normal-case font-normal">(optional)</span></label>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              Notes <span className="normal-case font-normal">(optional)</span>
+            </label>
             <textarea
               rows={2}
               value={form.notes}
@@ -221,7 +277,9 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               disabled={loading}
               className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
             >
-              {loading && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner" />}
+              {loading && (
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full spinner" />
+              )}
               {isEdit ? "Save changes" : "Add transaction"}
             </button>
           </div>
