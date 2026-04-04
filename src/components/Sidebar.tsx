@@ -19,7 +19,7 @@ const navItems = [
     ),
   },
   {
-    href: "/transactions",
+    href: "/dashboard/transactions",
     label: "Transactions",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -29,7 +29,7 @@ const navItems = [
     ),
   },
   {
-    href: "/notifications",
+    href: "/dashboard/notifications",
     label: "Notifications",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -51,7 +51,6 @@ export default function Sidebar({ user, open, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Dark overlay — mobile only, shown when sidebar is open */}
       {open && (
         <div
           className="fixed inset-0 z-20 bg-black/25 md:hidden"
@@ -59,13 +58,6 @@ export default function Sidebar({ user, open, onClose }: SidebarProps) {
         />
       )}
 
-      {/*
-        Sidebar panel.
-        - Always rendered in the DOM so transitions work.
-        - On mobile: fixed, slides in/out with translateX.
-        - On desktop: part of the flex row, width transitions between 240px and 0.
-        - We use inline style for width so Tailwind's JIT doesn't purge the value.
-      */}
       <aside
         style={{
           width: open ? 240 : 0,
@@ -75,7 +67,6 @@ export default function Sidebar({ user, open, onClose }: SidebarProps) {
         }}
         className="relative z-30 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col h-full"
       >
-        {/* Inner wrapper — fixed width so content doesn't squish during animation */}
         <div style={{ width: 240, minWidth: 240 }} className="flex flex-col h-full">
           {/* Logo + close button */}
           <div className="px-5 py-5 border-b border-gray-100 flex items-center justify-between flex-shrink-0">

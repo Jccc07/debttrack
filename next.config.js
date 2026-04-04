@@ -8,8 +8,5 @@ const nextConfig = {
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
-  outputFileTracingIncludes: {
-    "/dashboard": ["./src/app/(dashboard)/**/*"],
-  },
 };
 module.exports = nextConfig;
