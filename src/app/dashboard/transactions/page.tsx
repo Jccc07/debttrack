@@ -412,7 +412,7 @@ function TransactionsPageInner() {
       {/* Add form modal */}
       {showForm && (
         <TransactionForm
-          onClose={() => { setShowForm(false); router.replace("/transactions"); }}
+          onClose={() => { setShowForm(false); router.replace("/dashboard/transactions"); }}
           onSaved={(tx) => { fetchTransactions(); }}
         />
       )}
