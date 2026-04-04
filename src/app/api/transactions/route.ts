@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { computeEndAmount } from "@/lib/utils";
+import { computeEndAmount, computeInstallments, computeInstallmentTotal } from "@/lib/utils";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -24,7 +24,6 @@ export async function GET(req: NextRequest) {
     ...(search && { counterparty: { contains: search, mode: "insensitive" as const } }),
   };
 
-  // Handle nullable dueDate sort — nulls go last for "asc", last for "desc" too
   let orderBy: object;
   if (sort === "dueDate") {
     orderBy = { dueDate: { sort: order, nulls: "last" } };
@@ -38,6 +37,7 @@ export async function GET(req: NextRequest) {
       orderBy,
       skip: (page - 1) * limit,
       take: limit,
+      include: { installments: { orderBy: { monthNumber: "asc" } } },
     }),
     prisma.transaction.count({ where }),
   ]);
@@ -54,32 +54,81 @@ export async function POST(req: NextRequest) {
     const {
       type, amount, interestRate = 0, interestType = "PERCENT",
       counterparty, notes, transactionDate, dueDate,
+      isInstallment = false, installmentMonths, installmentMethod,
     } = body;
 
     if (!type || !amount || !transactionDate) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const endAmount = computeEndAmount(Number(amount), Number(interestRate), interestType);
+    const txDate = new Date(transactionDate);
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        userId: session.user.id,
-        type,
-        amount,
-        interestRate,
-        interestType,
-        endAmount,
-        counterparty: counterparty || null,
-        notes: notes || null,
-        transactionDate: new Date(transactionDate),
-        dueDate: dueDate ? new Date(dueDate) : null,   // nullable
-        status: "UNPAID",
-      },
+    let endAmount: number;
+    let txDueDate: Date | null;
+    let installmentRows: ReturnType<typeof computeInstallments> = [];
+
+    if (isInstallment && installmentMonths && installmentMethod) {
+      // Installment transaction
+      installmentRows = computeInstallments(
+        Number(amount),
+        Number(interestRate),
+        Number(installmentMonths),
+        installmentMethod,
+        txDate
+      );
+      endAmount = installmentRows.reduce((sum, r) => sum + r.totalAmount, 0);
+      endAmount = Math.round(endAmount * 100) / 100;
+      // Due date = last installment's due date
+      txDueDate = installmentRows[installmentRows.length - 1].dueDate;
+    } else {
+      endAmount = computeEndAmount(Number(amount), Number(interestRate), interestType);
+      txDueDate = dueDate ? new Date(dueDate) : null;
+    }
+
+    // Create transaction + installments in one DB transaction
+    const transaction = await prisma.$transaction(async (tx) => {
+      const created = await tx.transaction.create({
+        data: {
+          userId: session.user.id,
+          type,
+          amount,
+          interestRate,
+          interestType,
+          endAmount,
+          counterparty: counterparty || null,
+          notes: notes || null,
+          transactionDate: txDate,
+          dueDate: txDueDate,
+          status: "UNPAID",
+          isInstallment,
+          installmentMonths: isInstallment ? Number(installmentMonths) : null,
+          installmentMethod: isInstallment ? installmentMethod : null,
+        },
+      });
+
+      if (isInstallment && installmentRows.length > 0) {
+        await tx.installment.createMany({
+          data: installmentRows.map((row) => ({
+            transactionId: created.id,
+            monthNumber: row.monthNumber,
+            dueDate: row.dueDate,
+            principalAmount: row.principalAmount,
+            interestAmount: row.interestAmount,
+            totalAmount: row.totalAmount,
+            status: "UNPAID",
+          })),
+        });
+      }
+
+      return tx.transaction.findUnique({
+        where: { id: created.id },
+        include: { installments: { orderBy: { monthNumber: "asc" } } },
+      });
     });
 
     return NextResponse.json(transaction, { status: 201 });
-  } catch {
+  } catch (err) {
+    console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

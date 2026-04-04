@@ -5,7 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { computeEndAmount } from "@/lib/utils";
 
 async function getOwned(id: string, userId: string) {
-  return prisma.transaction.findFirst({ where: { id, userId } });
+  return prisma.transaction.findFirst({
+    where: { id, userId },
+    include: { installments: { orderBy: { monthNumber: "asc" } } },
+  });
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,14 +30,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json();
 
   let endAmount = existing.endAmount;
-  if (body.amount !== undefined || body.interestRate !== undefined || body.interestType) {
+  // Only recompute endAmount for non-installment transactions
+  if (!existing.isInstallment && (body.amount !== undefined || body.interestRate !== undefined || body.interestType)) {
     const amount = Number(body.amount ?? existing.amount);
     const rate   = Number(body.interestRate ?? existing.interestRate);
     const iType  = body.interestType ?? existing.interestType;
     endAmount = computeEndAmount(amount, rate, iType as "PERCENT" | "FLAT") as any;
   }
 
-  // Build dueDate update — explicitly allow setting to null
   let dueDateUpdate: Date | null | undefined = undefined;
   if ("dueDate" in body) {
     dueDateUpdate = body.dueDate ? new Date(body.dueDate) : null;
@@ -43,8 +46,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updated = await prisma.transaction.update({
     where: { id },
     data: {
-      ...(body.type        !== undefined && { type: body.type }),
-      ...(body.amount      !== undefined && { amount: body.amount }),
+      ...(body.type         !== undefined && { type: body.type }),
+      ...(body.amount       !== undefined && { amount: body.amount }),
       ...(body.interestRate !== undefined && { interestRate: body.interestRate }),
       ...(body.interestType !== undefined && { interestType: body.interestType }),
       ...(body.counterparty !== undefined && { counterparty: body.counterparty }),
@@ -56,6 +59,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(body.status === "PAID" && !existing.paidAt ? { paidAt: new Date() } : {}),
       ...(body.status && body.status !== "PAID"      ? { paidAt: null }        : {}),
     },
+    include: { installments: { orderBy: { monthNumber: "asc" } } },
   });
 
   return NextResponse.json(updated);

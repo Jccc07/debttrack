@@ -3,6 +3,21 @@
 export type TransactionType = "LEND" | "OWE";
 export type TransactionStatus = "UNPAID" | "PAID" | "OVERDUE";
 export type InterestType = "PERCENT" | "FLAT";
+export type InstallmentMethod = "FLAT" | "REDUCING";
+
+export interface Installment {
+  id: string;
+  transactionId: string;
+  monthNumber: number;
+  dueDate: string | Date;
+  principalAmount: number | string;
+  interestAmount: number | string;
+  totalAmount: number | string;
+  status: TransactionStatus;
+  paidAt: string | Date | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
 
 export interface Transaction {
   id: string;
@@ -15,9 +30,14 @@ export interface Transaction {
   counterparty: string | null;
   notes: string | null;
   transactionDate: string | Date;
-  dueDate: string | Date;
+  dueDate: string | Date | null;
   status: TransactionStatus;
   paidAt: string | Date | null;
+  // Installment fields
+  isInstallment: boolean;
+  installmentMonths: number | null;
+  installmentMethod: InstallmentMethod | null;
+  installments?: Installment[];
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -33,14 +53,6 @@ export interface Notification {
   createdAt: string | Date;
 }
 
-export interface DashboardStats {
-  totalLent: number;
-  totalOwed: number;
-  totalExpectedReturn: number;
-  overdueCount: number;
-  recentTransactions: Transaction[];
-}
-
 export interface TransactionFilters {
   type?: TransactionType | "";
   status?: TransactionStatus | "";
@@ -49,4 +61,14 @@ export interface TransactionFilters {
   to?: string;
   sort?: string;
   order?: "asc" | "desc";
+}
+
+// Computed installment schedule row (frontend only, not stored)
+export interface InstallmentScheduleRow {
+  monthNumber: number;
+  dueDate: Date;
+  principalAmount: number;
+  interestAmount: number;
+  totalAmount: number;
+  remainingBalance: number;
 }
