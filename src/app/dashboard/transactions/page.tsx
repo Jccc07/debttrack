@@ -1,6 +1,6 @@
 "use client";
 export const dynamic = "force-dynamic";
-// src/app/(dashboard)/transactions/page.tsx
+// src/app/dashboard/transactions/page.tsx
 import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Transaction, TransactionFilters } from "@/types";
@@ -253,22 +253,22 @@ function TransactionsPageInner() {
         ) : (
           <>
             {/* Table header */}
-            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-50">
+            <div className="hidden md:grid md:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-50">
               <span>Person</span>
               <span className="text-center">Date</span>
               <span className="text-center">Amount</span>
               <span className="text-center">Due</span>
               <span className="text-center">Status</span>
-              <span></span>
+              <span className="text-center">Actions</span>
             </div>
 
             <div className="divide-y divide-gray-50">
               {transactions.map((tx) => (
                 <div
                   key={tx.id}
-                  className="grid grid-cols-[1fr_auto] md:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto] gap-4 px-5 py-4 items-center hover:bg-gray-50 transition-colors group"
+                  className="grid grid-cols-[1fr_auto] md:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-4 items-center hover:bg-gray-50 transition-colors group"
                 >
-                  {/* Person + type — clickable to open modal */}
+                  {/* Person + type */}
                   <button
                     onClick={() => setSelectedTx(tx)}
                     className="flex items-center gap-3 text-left"
@@ -288,12 +288,12 @@ function TransactionsPageInner() {
                     </div>
                   </button>
 
-                  {/* Date — centered */}
+                  {/* Date */}
                   <div className="hidden md:flex justify-center">
                     <span className="text-sm text-gray-500">{formatDate(tx.transactionDate)}</span>
                   </div>
 
-                  {/* Amount — centered */}
+                  {/* Amount */}
                   <div className="hidden md:flex flex-col items-center">
                     <p className={`text-sm font-semibold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>
                       {formatCurrency(tx.endAmount)}
@@ -305,19 +305,19 @@ function TransactionsPageInner() {
                     )}
                   </div>
 
-                  {/* Due — centered */}
+                  {/* Due */}
                   <div className="hidden md:flex flex-col items-center">
-                    <p className="text-sm text-gray-600">{formatDate(tx.dueDate)}</p>
+                    <p className="text-sm text-gray-600">{tx.dueDate ? formatDate(tx.dueDate) : "—"}</p>
                     <DueBadge dueDate={tx.dueDate} status={tx.status} />
                   </div>
 
-                  {/* Status — centered */}
+                  {/* Status */}
                   <div className="hidden md:flex justify-center">
                     <StatusBadge status={tx.status} />
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-center gap-1">
                     {/* View */}
                     <button
                       onClick={() => setSelectedTx(tx)}
@@ -330,23 +330,11 @@ function TransactionsPageInner() {
                       </svg>
                     </button>
 
-                    {/* Edit */}
-                    <button
-                      onClick={() => { setSelectedTx(tx); }}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
-                      title="Edit"
-                      // Edit is handled inside the modal
-                    >
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <path d="M9.5 2.5l2 2L4 12H2v-2L9.5 2.5z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
-
                     {/* Toggle paid/unpaid */}
                     <button
                       onClick={() => toggleStatus(tx)}
                       disabled={togglingId === tx.id}
-                      className={`p-1.5 rounded-lg transition-colors opacity-0 group-hover:opacity-100 ${
+                      className={`p-1.5 rounded-lg transition-colors ${
                         tx.status === "PAID"
                           ? "text-green-600 hover:text-gray-400 hover:bg-gray-100"
                           : "text-gray-400 hover:text-green-600 hover:bg-green-50"
@@ -356,12 +344,10 @@ function TransactionsPageInner() {
                       {togglingId === tx.id ? (
                         <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full spinner inline-block" />
                       ) : tx.status === "PAID" ? (
-                        /* X = currently paid, click to unpay */
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                           <path d="M3 3l8 8M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                         </svg>
                       ) : (
-                        /* Check = currently unpaid, click to pay */
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                           <path d="M2 7l3.5 3.5L12 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
@@ -371,7 +357,7 @@ function TransactionsPageInner() {
                     {/* Delete */}
                     <button
                       onClick={() => setDeleteTarget(tx)}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                       title="Delete"
                     >
                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -413,7 +399,7 @@ function TransactionsPageInner() {
       {showForm && (
         <TransactionForm
           onClose={() => { setShowForm(false); router.replace("/dashboard/transactions"); }}
-          onSaved={(tx) => { fetchTransactions(); }}
+          onSaved={() => { fetchTransactions(); }}
         />
       )}
 
