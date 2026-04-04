@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Providers from "@/components/Providers";
+import SessionProvider from "@/components/SessionProvider";
 
 export const metadata: Metadata = {
   title: "DebtTrack — Money Lending Tracker",
@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <Providers>{children}</Providers>
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );
