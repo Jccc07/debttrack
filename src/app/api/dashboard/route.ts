@@ -18,6 +18,7 @@ export async function GET() {
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 5,
+      include: { installments: { orderBy: { monthNumber: "asc" } } },
     }),
   ]);
 

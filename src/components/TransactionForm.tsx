@@ -112,7 +112,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      {/* wider modal: max-w-lg instead of max-w-md */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-xl w-full max-w-lg animate-in max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
@@ -160,34 +159,40 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           </div>
 
-          {/* Installment toggle */}
-          {!isEdit && (
-            <div>
-              <div className="flex items-center justify-between py-3 px-4 bg-purple-50 rounded-xl border border-purple-100">
-                <div>
-                  <p className="text-sm font-medium text-purple-900">Installment plan</p>
-                  <p className="text-xs text-purple-600 mt-0.5">Split into monthly payments</p>
-                </div>
-                {/* Fixed toggle — using flex to center the circle properly */}
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, isInstallment: !form.isInstallment })}
-                  className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-                    form.isInstallment ? "bg-purple-600" : "bg-gray-200"
-                  }`}
-                >
-                  <span
-                    className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                      form.isInstallment ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
+          {/* Installment toggle — show always, but locked if already an installment on edit */}
+          <div>
+            <div className={`flex items-center justify-between py-3 px-4 rounded-xl border ${
+              isExistingInstallment
+                ? "bg-purple-50/50 border-purple-100 opacity-70"
+                : "bg-purple-50 border-purple-100"
+            }`}>
+              <div>
+                <p className="text-sm font-medium text-purple-900">Installment plan</p>
+                <p className="text-xs text-purple-600 mt-0.5">
+                  {isExistingInstallment
+                    ? "Installment structure cannot be changed after creation"
+                    : "Split into monthly payments"}
+                </p>
               </div>
+              <button
+                type="button"
+                disabled={isExistingInstallment}
+                onClick={() => !isExistingInstallment && setForm({ ...form, isInstallment: !form.isInstallment })}
+                className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  form.isInstallment ? "bg-purple-600" : "bg-gray-200"
+                } ${isExistingInstallment ? "cursor-not-allowed" : "cursor-pointer"}`}
+              >
+                <span
+                  className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                    form.isInstallment ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
             </div>
-          )}
+          </div>
 
-          {/* Installment options */}
-          {form.isInstallment && !isEdit && (
+          {/* Installment options — new transactions only */}
+          {form.isInstallment && !isExistingInstallment && (
             <div className="space-y-3 bg-purple-50/50 rounded-xl p-4 border border-purple-100">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -345,7 +350,8 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           )}
 
-          {form.isInstallment && !isEdit && (
+          {/* Installment due date info */}
+          {form.isInstallment && !isExistingInstallment && (
             <div className="bg-purple-50 rounded-xl px-4 py-3">
               <p className="text-xs text-purple-700">
                 <span className="font-semibold">Due dates</span> are auto-calculated monthly from the transaction date.
