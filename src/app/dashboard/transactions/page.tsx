@@ -98,6 +98,15 @@ function TransactionsPageInner() {
 
   useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
 
+  // Auto-open modal if ?view=ID is in the URL (from notifications)
+  useEffect(() => {
+    const viewId = searchParams.get("view");
+    if (viewId && transactions.length > 0) {
+      const tx = transactions.find((t) => t.id === viewId);
+      if (tx) setSelectedTx(tx);
+    }
+  }, [searchParams, transactions]);
+
   async function toggleStatus(tx: Transaction) {
     setTogglingId(tx.id);
     const newStatus = tx.status === "PAID" ? "UNPAID" : "PAID";

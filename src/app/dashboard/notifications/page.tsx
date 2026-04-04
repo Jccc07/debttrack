@@ -77,7 +77,7 @@ export default function NotificationsPage() {
       setNotifications((prev) => prev.map((x) => x.id === n.id ? { ...x, isRead: true } : x));
     }
     if (n.transactionId) {
-      router.push(`/dashboard/transactions/${n.transactionId}`);
+      router.push(`/dashboard/transactions?view=${n.transactionId}`);
     }
   }
 
