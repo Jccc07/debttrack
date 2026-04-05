@@ -15,7 +15,6 @@ interface InstallmentScheduleProps {
   penaltyType?: PenaltyType;
   penaltyAmount?: number;
   penaltyFrequency?: PenaltyFrequency;
-  onApplyPenalty?: (inst: Installment) => void;
 }
 
 function periodLabel(index: number, total: number, monthsFloat: number): string {
@@ -37,7 +36,6 @@ export default function InstallmentSchedule({
   penaltyType,
   penaltyAmount,
   penaltyFrequency,
-  onApplyPenalty,
 }: InstallmentScheduleProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -60,18 +58,20 @@ export default function InstallmentSchedule({
     setTogglingId(null);
   }
 
-  function getPendingPenalty(inst: Installment) {
-    if (!penaltyEnabled || !penaltyGraceDays === undefined || !penaltyType || !penaltyAmount || !penaltyFrequency) return null;
-    if (inst.status === "PAID") return null;
-    const alreadyApplied = (inst.penalties ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+  // Live penalty for a given installment — computed from rule + current date, no DB offset
+  function getLivePenalty(inst: Installment) {
+    if (
+      !penaltyEnabled || inst.status === "PAID" ||
+      penaltyGraceDays === undefined || !penaltyType || !penaltyAmount || !penaltyFrequency
+    ) return null;
     return computePenaltyPreview(
       Number(inst.totalAmount),
       inst.dueDate,
-      penaltyGraceDays ?? 0,
+      penaltyGraceDays,
       penaltyType,
       penaltyAmount,
       penaltyFrequency,
-      alreadyApplied
+      0 // gross computation — always show the full accrued amount
     );
   }
 
@@ -131,7 +131,7 @@ export default function InstallmentSchedule({
     );
   }
 
-  // ── Regular installment schedule with checkboxes ──
+  // ── Regular installment schedule ──
   return (
     <div className="space-y-3">
       {/* Progress summary */}
@@ -151,26 +151,29 @@ export default function InstallmentSchedule({
       {/* Rows */}
       <div className="space-y-2">
         {installments.map((inst, idx) => {
-          const daysLeft  = getDaysUntilDue(inst.dueDate);
-          const isPaid    = inst.status === "PAID";
-          const isOverdue = inst.status === "OVERDUE";
-          const toggling  = togglingId === inst.id;
-          const isLast    = idx === totalCount - 1;
-          const isFrac    = isLast && hasFraction;
-          const label     = periodLabel(idx + 1, totalCount, resolvedMonths);
-          const pendingPenalty = getPendingPenalty(inst);
-          const instPenaltiesApplied = (inst.penalties ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+          const daysLeft   = getDaysUntilDue(inst.dueDate);
+          const isPaid     = inst.status === "PAID";
+          const isOverdue  = inst.status === "OVERDUE";
+          const toggling   = togglingId === inst.id;
+          const isLast     = idx === totalCount - 1;
+          const isFrac     = isLast && hasFraction;
+          const label      = periodLabel(idx + 1, totalCount, resolvedMonths);
+          const livePenalty = getLivePenalty(inst);
+          const livePenaltyAmount = livePenalty?.amount ?? 0;
+          const totalWithPenalty = Number(inst.totalAmount) + livePenaltyAmount;
 
           return (
-            <div key={inst.id}>
-              <div
-                className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                  isPaid      ? "bg-green-50/50 border-green-100"
-                  : isOverdue ? "bg-red-50/50 border-red-100"
-                  : isFrac    ? "bg-purple-50/30 border-purple-100"
-                  :             "bg-gray-50 border-gray-100"
-                }`}
-              >
+            <div
+              key={inst.id}
+              className={`rounded-xl border transition-colors overflow-hidden ${
+                isPaid      ? "bg-green-50/50 border-green-100"
+                : isOverdue ? "bg-red-50/50 border-red-100"
+                : isFrac    ? "bg-purple-50/30 border-purple-100"
+                :             "bg-gray-50 border-gray-100"
+              }`}
+            >
+              {/* Main row */}
+              <div className="flex items-center gap-3 p-3">
                 {/* Checkbox */}
                 {!readonly && (
                   <button
@@ -213,7 +216,7 @@ export default function InstallmentSchedule({
                   </p>
                   {!isPaid && daysLeft !== null && (
                     <p className={`text-xs ${
-                      daysLeft < 0   ? "text-red-500"
+                      daysLeft < 0    ? "text-red-500"
                       : daysLeft === 0 ? "text-orange-500"
                       : daysLeft <= 3  ? "text-amber-600"
                       :                  "text-gray-400"
@@ -226,37 +229,45 @@ export default function InstallmentSchedule({
                   )}
                 </div>
 
-                {/* Amount + penalties */}
+                {/* Amount */}
                 <div className="text-right flex-shrink-0">
-                  <p className={`text-sm font-semibold ${
-                    isPaid ? "text-gray-400" : isFrac ? "text-purple-700" : "text-gray-900"
-                  }`}>
-                    {formatCurrency(inst.totalAmount)}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
-                  </p>
-                  {instPenaltiesApplied > 0 && (
-                    <p className="text-xs text-orange-600 font-medium mt-0.5">
-                      +{formatCurrency(instPenaltiesApplied)} penalty
-                    </p>
-                  )}
-                  {pendingPenalty && !isPaid && (
-                    <p className="text-xs text-orange-400 mt-0.5">
-                      +{formatCurrency(pendingPenalty.amount)} due
-                    </p>
+                  {livePenaltyAmount > 0 ? (
+                    <>
+                      {/* Strike through original, show new total */}
+                      <p className="text-xs text-gray-400 line-through">{formatCurrency(inst.totalAmount)}</p>
+                      <p className={`text-sm font-bold text-orange-700`}>
+                        {formatCurrency(totalWithPenalty)}
+                      </p>
+                      <p className="text-xs text-orange-500">+{formatCurrency(livePenaltyAmount)} penalty</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className={`text-sm font-semibold ${
+                        isPaid ? "text-gray-400" : isFrac ? "text-purple-700" : "text-gray-900"
+                      }`}>
+                        {formatCurrency(inst.totalAmount)}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
+                      </p>
+                    </>
                   )}
                 </div>
               </div>
 
-              {/* Per-installment apply penalty button — only show when penalty is actually due */}
-              {penaltyEnabled && !isPaid && onApplyPenalty && pendingPenalty && (
-                <button
-                  onClick={() => onApplyPenalty(inst)}
-                  className="ml-8 mt-1 text-xs text-orange-500 hover:text-orange-700 hover:underline transition-colors font-medium"
-                >
-                  + Apply penalty ({formatCurrency(pendingPenalty.amount)})
-                </button>
+              {/* Penalty breakdown sub-row — shown inline when penalty is accruing */}
+              {livePenaltyAmount > 0 && !isPaid && (
+                <div className="border-t border-orange-100 bg-orange-50/60 px-3 py-2 text-xs text-orange-600 flex justify-between items-start gap-2">
+                  <span className="leading-relaxed">
+                    <span className="font-medium">Penalty:</span>{" "}
+                    {penaltyType === "PERCENT"
+                      ? `${penaltyAmount}% of ₱${Number(inst.totalAmount).toFixed(2)}`
+                      : `₱${Number(penaltyAmount).toFixed(2)} flat`}
+                    {" "}× {livePenalty!.occurrences} {penaltyFrequency?.toLowerCase()} occurrence{livePenalty!.occurrences !== 1 ? "s" : ""}
+                    {" "}({livePenalty!.daysOverdue}d overdue, {penaltyGraceDays}d grace)
+                  </span>
+                  <span className="font-semibold text-orange-700 flex-shrink-0">+{formatCurrency(livePenaltyAmount)}</span>
+                </div>
               )}
             </div>
           );

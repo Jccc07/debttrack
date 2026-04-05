@@ -1,7 +1,7 @@
 "use client";
 // src/components/DashboardClient.tsx
 import { useEffect, useState } from "react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, computePenaltyPreview } from "@/lib/utils";
 import { Transaction } from "@/types";
 import Link from "next/link";
 import TransactionDetailsModal from "@/components/TransactionDetailsModal";
@@ -29,6 +29,29 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${map[status] ?? "bg-gray-50 text-gray-600"}`}>{status.charAt(0) + status.slice(1).toLowerCase()}</span>;
 }
 
+/** Compute live accrued penalty for a transaction (no DB, pure math) */
+function getLivePenaltyAmount(tx: Transaction): number {
+  if (
+    !tx.penaltyEnabled || !tx.dueDate || tx.status === "PAID" ||
+    tx.penaltyGraceDays === null || tx.penaltyGraceDays === undefined ||
+    !tx.penaltyType || !tx.penaltyAmount || !tx.penaltyFrequency
+  ) return 0;
+
+  // For installment transactions (non-payAtEnd), penalty is per installment — skip top-level
+  if (tx.isInstallment && !tx.payAtEnd) return 0;
+
+  const preview = computePenaltyPreview(
+    Number(tx.endAmount),
+    tx.dueDate,
+    tx.penaltyGraceDays,
+    tx.penaltyType,
+    Number(tx.penaltyAmount),
+    tx.penaltyFrequency,
+    0
+  );
+  return preview?.amount ?? 0;
+}
+
 export default function DashboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,7 +74,6 @@ export default function DashboardClient() {
   if (loading) return <div className="flex items-center justify-center h-64"><span className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full spinner" /></div>;
   if (!data) return null;
 
-  // Use totalOwedWithInterest if available, fallback to totalOwed
   const owedDisplay = data.totalOwedWithInterest ?? data.totalOwed;
 
   return (
@@ -107,37 +129,61 @@ export default function DashboardClient() {
           </div>
         ) : (
           <div className="divide-y divide-gray-50">
-            {data.recentTransactions.map((tx) => (
-              <button key={tx.id} onClick={() => setSelectedTx(tx)}
-                className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors text-left group">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 ${tx.type === "LEND" ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-500"}`}>
-                    {tx.type === "LEND" ? "↑" : "↓"}
+            {data.recentTransactions.map((tx) => {
+              const livePenalty = getLivePenaltyAmount(tx);
+              const displayAmount = Number(tx.endAmount) + livePenalty;
+              const hasPenalty = livePenalty > 0;
+
+              return (
+                <button key={tx.id} onClick={() => setSelectedTx(tx)}
+                  className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors text-left group">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 ${tx.type === "LEND" ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-500"}`}>
+                      {tx.type === "LEND" ? "↑" : "↓"}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-green-700 transition-colors">{tx.counterparty ?? "Unknown"}</p>
+                        {tx.isInstallment && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium flex-shrink-0">
+                            {tx.installmentMonths}×
+                          </span>
+                        )}
+                        {hasPenalty && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-600 text-xs font-medium flex-shrink-0">
+                            ⚠ penalty
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 truncate">
+                        {tx.type === "LEND" ? "Lent" : "Borrowed"} · {formatDate(tx.transactionDate)}
+                        {!tx.isInstallment && tx.dueDate ? ` · Due ${formatDate(tx.dueDate)}` : ""}
+                        {tx.isInstallment ? ` · ${tx.installmentMonths} installments` : ""}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-green-700 transition-colors">{tx.counterparty ?? "Unknown"}</p>
-                      {tx.isInstallment && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium flex-shrink-0">
-                          {tx.installmentMonths}×
-                        </span>
+                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                    <div className="text-right">
+                      {hasPenalty ? (
+                        <>
+                          <p className="text-xs text-gray-400 line-through leading-none">
+                            {tx.type === "LEND" ? "+" : "−"}{formatCurrency(tx.endAmount)}
+                          </p>
+                          <p className={`text-sm font-bold text-orange-600`}>
+                            {tx.type === "LEND" ? "+" : "−"}{formatCurrency(displayAmount)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className={`text-sm font-bold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>
+                          {tx.type === "LEND" ? "+" : "−"}{formatCurrency(tx.endAmount)}
+                        </p>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 truncate">
-                      {tx.type === "LEND" ? "Lent" : "Borrowed"} · {formatDate(tx.transactionDate)}
-                      {!tx.isInstallment && tx.dueDate ? ` · Due ${formatDate(tx.dueDate)}` : ""}
-                      {tx.isInstallment ? ` · ${tx.installmentMonths} installments` : ""}
-                    </p>
+                    <StatusBadge status={tx.status} />
                   </div>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                  <p className={`text-sm font-bold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>
-                    {tx.type === "LEND" ? "+" : "−"}{formatCurrency(tx.endAmount)}
-                  </p>
-                  <StatusBadge status={tx.status} />
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
