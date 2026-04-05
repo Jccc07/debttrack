@@ -1,17 +1,20 @@
 "use client";
 // src/components/InstallmentSchedule.tsx
 import { useState } from "react";
-import { Installment, Penalty } from "@/types";
-import { formatCurrency, formatDate, getDaysUntilDue, fractionLabel } from "@/lib/utils";
+import { Installment, PenaltyType, PenaltyFrequency } from "@/types";
+import { formatCurrency, formatDate, getDaysUntilDue, fractionLabel, computePenaltyPreview } from "@/lib/utils";
 
 interface InstallmentScheduleProps {
   installments: Installment[];
   onTogglePaid: (installmentId: string, currentStatus: string) => Promise<void>;
   readonly?: boolean;
   payAtEnd?: boolean;
-  totalPeriods?: number;
   monthsFloat?: number;
   penaltyEnabled?: boolean;
+  penaltyGraceDays?: number;
+  penaltyType?: PenaltyType;
+  penaltyAmount?: number;
+  penaltyFrequency?: PenaltyFrequency;
   onApplyPenalty?: (inst: Installment) => void;
 }
 
@@ -19,9 +22,7 @@ function periodLabel(index: number, total: number, monthsFloat: number): string 
   const wholeMonths = Math.floor(monthsFloat);
   const fraction    = Math.round((monthsFloat - wholeMonths) * 100) / 100;
   const hasFraction = fraction > 0;
-  if (hasFraction && index === total) {
-    return fractionLabel(fraction);
-  }
+  if (hasFraction && index === total) return fractionLabel(fraction);
   return `Month ${index}`;
 }
 
@@ -32,6 +33,10 @@ export default function InstallmentSchedule({
   payAtEnd,
   monthsFloat,
   penaltyEnabled,
+  penaltyGraceDays,
+  penaltyType,
+  penaltyAmount,
+  penaltyFrequency,
   onApplyPenalty,
 }: InstallmentScheduleProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -53,6 +58,21 @@ export default function InstallmentSchedule({
     setTogglingId(inst.id);
     await onTogglePaid(inst.id, inst.status);
     setTogglingId(null);
+  }
+
+  function getPendingPenalty(inst: Installment) {
+    if (!penaltyEnabled || !penaltyGraceDays === undefined || !penaltyType || !penaltyAmount || !penaltyFrequency) return null;
+    if (inst.status === "PAID") return null;
+    const alreadyApplied = (inst.penalties ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+    return computePenaltyPreview(
+      Number(inst.totalAmount),
+      inst.dueDate,
+      penaltyGraceDays ?? 0,
+      penaltyType,
+      penaltyAmount,
+      penaltyFrequency,
+      alreadyApplied
+    );
   }
 
   // ── payAtEnd mode ──
@@ -138,6 +158,8 @@ export default function InstallmentSchedule({
           const isLast    = idx === totalCount - 1;
           const isFrac    = isLast && hasFraction;
           const label     = periodLabel(idx + 1, totalCount, resolvedMonths);
+          const pendingPenalty = getPendingPenalty(inst);
+          const instPenaltiesApplied = (inst.penalties ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
 
           return (
             <div key={inst.id}>
@@ -181,9 +203,7 @@ export default function InstallmentSchedule({
                   }`}>
                     {label}
                   </span>
-                  {isFrac && (
-                    <span className="block text-xs text-purple-400">prorated</span>
-                  )}
+                  {isFrac && <span className="block text-xs text-purple-400">prorated</span>}
                 </div>
 
                 {/* Due date + urgency */}
@@ -198,11 +218,7 @@ export default function InstallmentSchedule({
                       : daysLeft <= 3  ? "text-amber-600"
                       :                  "text-gray-400"
                     }`}>
-                      {daysLeft < 0
-                        ? `${Math.abs(daysLeft)}d overdue`
-                        : daysLeft === 0
-                        ? "Due today"
-                        : `${daysLeft}d left`}
+                      {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? "Due today" : `${daysLeft}d left`}
                     </p>
                   )}
                   {isPaid && inst.paidAt && (
@@ -210,7 +226,7 @@ export default function InstallmentSchedule({
                   )}
                 </div>
 
-                {/* Amount breakdown */}
+                {/* Amount + penalties */}
                 <div className="text-right flex-shrink-0">
                   <p className={`text-sm font-semibold ${
                     isPaid ? "text-gray-400" : isFrac ? "text-purple-700" : "text-gray-900"
@@ -220,21 +236,26 @@ export default function InstallmentSchedule({
                   <p className="text-xs text-gray-400">
                     {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
                   </p>
-                  {(inst.penalties ?? []).length > 0 && (
+                  {instPenaltiesApplied > 0 && (
                     <p className="text-xs text-orange-600 font-medium mt-0.5">
-                      +{formatCurrency((inst.penalties ?? []).reduce((s, p) => s + Number(p.amount), 0))} penalty
+                      +{formatCurrency(instPenaltiesApplied)} penalty
+                    </p>
+                  )}
+                  {pendingPenalty && !isPaid && (
+                    <p className="text-xs text-orange-400 mt-0.5">
+                      +{formatCurrency(pendingPenalty.amount)} due
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Per-installment apply penalty button */}
-              {penaltyEnabled && !isPaid && onApplyPenalty && (
+              {/* Per-installment apply penalty button — only show when penalty is actually due */}
+              {penaltyEnabled && !isPaid && onApplyPenalty && pendingPenalty && (
                 <button
                   onClick={() => onApplyPenalty(inst)}
-                  className="ml-8 mt-1 text-xs text-orange-500 hover:text-orange-700 hover:underline transition-colors"
+                  className="ml-8 mt-1 text-xs text-orange-500 hover:text-orange-700 hover:underline transition-colors font-medium"
                 >
-                  + Apply penalty
+                  + Apply penalty ({formatCurrency(pendingPenalty.amount)})
                 </button>
               )}
             </div>

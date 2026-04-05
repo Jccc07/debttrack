@@ -11,8 +11,6 @@ interface TransactionFormProps {
 }
 
 const today = new Date().toISOString().split("T")[0];
-
-// Allowed month steps shown in the dropdown suggestions
 const MONTH_PRESETS = [0.5, 1, 2, 4, 6, 12, 24];
 
 export default function TransactionForm({ onClose, onSaved, initial }: TransactionFormProps) {
@@ -37,7 +35,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     installmentMonths: String(initial?.installmentMonths ?? "3"),
     installmentMethod: (initial?.installmentMethod ?? "FLAT") as InstallmentMethod,
     payAtEnd: initial?.payAtEnd ?? false,
-    // Penalty rule
+    // Penalty — read from initial correctly
     penaltyEnabled: initial?.penaltyEnabled ?? false,
     penaltyGraceDays: String(initial?.penaltyGraceDays ?? "3"),
     penaltyType: (initial?.penaltyType ?? "PERCENT") as PenaltyType,
@@ -49,11 +47,10 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
   const [error, setError] = useState("");
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
 
-  // Parse months as float
-  const monthsFloat = parseFloat(form.installmentMonths) || 0;
-  const wholeMonths = Math.floor(monthsFloat);
-  const fraction    = Math.round((monthsFloat - wholeMonths) * 100) / 100;
-  const hasFraction = fraction > 0;
+  const monthsFloat  = parseFloat(form.installmentMonths) || 0;
+  const wholeMonths  = Math.floor(monthsFloat);
+  const fraction     = Math.round((monthsFloat - wholeMonths) * 100) / 100;
+  const hasFraction  = fraction > 0;
   const totalPeriods = wholeMonths + (hasFraction ? 1 : 0);
 
   const installmentSchedule = useMemo(() => {
@@ -72,15 +69,31 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     ? computeEndAmount(Number(form.amount), Number(form.interestRate), form.interestType)
     : 0;
 
+  // Base amount for penalty calculation
+  const baseForPenalty = form.isInstallment ? installmentTotal : simpleTotal;
+
+  // Compute example penalty (30 days overdue)
+  function examplePenalty(): number {
+    const grace = Number(form.penaltyGraceDays) || 0;
+    const daysAfterGrace = Math.max(0, 30 - grace);
+    const perOccurrence = form.penaltyType === "PERCENT"
+      ? baseForPenalty * Number(form.penaltyAmount) / 100
+      : Number(form.penaltyAmount);
+    let occurrences = 0;
+    if (form.penaltyFrequency === "ONCE") occurrences = daysAfterGrace > 0 ? 1 : 0;
+    else if (form.penaltyFrequency === "DAILY") occurrences = daysAfterGrace;
+    else if (form.penaltyFrequency === "WEEKLY") occurrences = Math.floor(daysAfterGrace / 7);
+    else occurrences = Math.floor(daysAfterGrace / 30);
+    return perOccurrence * occurrences;
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-
     if (form.isInstallment && monthsFloat < 0.5) {
       setError("Minimum installment duration is 0.5 months.");
       return;
     }
-
     setLoading(true);
 
     const url    = isEdit ? `/api/transactions/${initial!.id}` : "/api/transactions";
@@ -115,19 +128,12 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       }
     }
 
-    // Always include penalty rule
+    // Always send penalty fields
     payload.penaltyEnabled = form.penaltyEnabled;
-    if (form.penaltyEnabled) {
-      payload.penaltyGraceDays = parseInt(form.penaltyGraceDays) || 0;
-      payload.penaltyType = form.penaltyType;
-      payload.penaltyAmount = Number(form.penaltyAmount);
-      payload.penaltyFrequency = form.penaltyFrequency;
-    } else {
-      payload.penaltyGraceDays = null;
-      payload.penaltyType = null;
-      payload.penaltyAmount = null;
-      payload.penaltyFrequency = null;
-    }
+    payload.penaltyGraceDays = form.penaltyEnabled ? (parseInt(form.penaltyGraceDays) || 0) : null;
+    payload.penaltyType = form.penaltyEnabled ? form.penaltyType : null;
+    payload.penaltyAmount = form.penaltyEnabled ? Number(form.penaltyAmount) : null;
+    payload.penaltyFrequency = form.penaltyEnabled ? form.penaltyFrequency : null;
 
     const res = await fetch(url, {
       method,
@@ -207,9 +213,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               <div>
                 <p className="text-sm font-medium text-purple-900">Installment plan</p>
                 <p className="text-xs text-purple-600 mt-0.5">
-                  {isExistingInstallment
-                    ? "Enabled — update duration and rate below"
-                    : "Split into periodic payments"}
+                  {isExistingInstallment ? "Enabled — update duration and rate below" : "Split into periodic payments"}
                 </p>
               </div>
               <button
@@ -230,91 +234,56 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
           {/* Installment options */}
           {form.isInstallment && (
             <div className="space-y-3 bg-purple-50/50 rounded-xl p-4 border border-purple-100">
-
-              {/* Duration input */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                  Duration (months)
-                </label>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Duration (months)</label>
                 <div className="space-y-2">
-                  <input
-                    type="number"
-                    min="0.5"
-                    max="120"
-                    step="0.5"
-                    value={form.installmentMonths}
+                  <input type="number" min="0.5" max="120" step="0.5" value={form.installmentMonths}
                     onChange={(e) => setForm({ ...form, installmentMonths: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                    placeholder="e.g. 1.5, 2.5, 6"
-                  />
-                  {/* Quick preset chips */}
+                    placeholder="e.g. 1.5, 2.5, 6" />
                   <div className="flex flex-wrap gap-1.5">
                     {MONTH_PRESETS.map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
+                      <button key={preset} type="button"
                         onClick={() => setForm({ ...form, installmentMonths: String(preset) })}
                         className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
                           parseFloat(form.installmentMonths) === preset
                             ? "bg-purple-600 border-purple-600 text-white"
                             : "border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-700"
-                        }`}
-                      >
-                        {preset % 1 === 0 ? `${preset}mo` : `${preset}mo`}
+                        }`}>
+                        {preset}mo
                       </button>
                     ))}
                   </div>
                 </div>
-
-                {/* Duration breakdown hint */}
                 {monthsFloat >= 0.5 && (
                   <div className="mt-2 px-3 py-2 bg-white rounded-lg border border-purple-100">
                     <p className="text-xs text-purple-700">
                       {hasFraction ? (
-                        <>
-                          <span className="font-semibold">{totalPeriods} payments:</span>{" "}
-                          {wholeMonths > 0 && `${wholeMonths} full month${wholeMonths > 1 ? "s" : ""}`}
-                          {wholeMonths > 0 && hasFraction && " + "}
-                          {hasFraction && <span className="font-semibold">{fractionLabel(fraction)}</span>}
-                        </>
+                        <><span className="font-semibold">{totalPeriods} payments:</span>{" "}
+                        {wholeMonths > 0 && `${wholeMonths} full month${wholeMonths > 1 ? "s" : ""}`}
+                        {wholeMonths > 0 && hasFraction && " + "}
+                        {hasFraction && <span className="font-semibold">{fractionLabel(fraction)}</span>}</>
                       ) : (
-                        <>
-                          <span className="font-semibold">{wholeMonths} payment{wholeMonths > 1 ? "s" : ""}</span>, one per month
-                        </>
+                        <><span className="font-semibold">{wholeMonths} payment{wholeMonths > 1 ? "s" : ""}</span>, one per month</>
                       )}
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Rate */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                  Monthly interest rate (%)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.interestRate}
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Monthly interest rate (%)</label>
+                <input type="number" min="0" step="0.01" value={form.interestRate}
                   onChange={(e) => setForm({ ...form, interestRate: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                  placeholder="e.g. 2.4"
-                />
-                {hasFraction && (
-                  <p className="text-xs text-purple-600 mt-1">
-                    The {fractionLabel(fraction).toLowerCase()} payment will use a prorated rate ({fractionLabel(fraction).toLowerCase()} × {form.interestRate}%).
-                  </p>
-                )}
+                  placeholder="e.g. 2.4" />
               </div>
 
-              {/* Method */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Interest method</label>
                 <div className="grid grid-cols-2 gap-2">
                   {(["FLAT", "REDUCING"] as InstallmentMethod[]).map((m) => (
-                    <button key={m} type="button"
-                      onClick={() => setForm({ ...form, installmentMethod: m })}
+                    <button key={m} type="button" onClick={() => setForm({ ...form, installmentMethod: m })}
                       className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all text-left ${
                         form.installmentMethod === m
                           ? "bg-purple-600 border-purple-600 text-white"
@@ -329,26 +298,17 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 </div>
               </div>
 
-              {/* Pay at end toggle */}
               <div className="flex items-center justify-between py-2.5 px-3 bg-white rounded-xl border border-purple-100">
                 <div>
                   <p className="text-sm font-medium text-gray-800">Pay at end</p>
                   <p className="text-xs text-gray-400 mt-0.5">One lump sum on the final due date</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, payAtEnd: !form.payAtEnd })}
-                  className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
-                    form.payAtEnd ? "bg-purple-600" : "bg-gray-200"
-                  }`}
-                >
-                  <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
-                    form.payAtEnd ? "translate-x-6" : "translate-x-1"
-                  }`} />
+                <button type="button" onClick={() => setForm({ ...form, payAtEnd: !form.payAtEnd })}
+                  className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${form.payAtEnd ? "bg-purple-600" : "bg-gray-200"}`}>
+                  <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${form.payAtEnd ? "translate-x-6" : "translate-x-1"}`} />
                 </button>
               </div>
 
-              {/* Schedule preview */}
               {installmentSchedule.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -361,7 +321,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                       {showSchedulePreview ? "Hide" : "Preview"} schedule
                     </button>
                   </div>
-
                   {showSchedulePreview && (
                     <div className="bg-white rounded-xl border border-purple-100 overflow-hidden">
                       <div className="grid grid-cols-4 gap-2 px-3 py-2 text-xs font-medium text-gray-400 uppercase border-b border-gray-50">
@@ -372,15 +331,12 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                       </div>
                       <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
                         {installmentSchedule.map((row, idx) => {
-                          const isLast = idx === installmentSchedule.length - 1;
-                          const isFractionalRow = isLast && hasFraction;
+                          const isLastRow = idx === installmentSchedule.length - 1;
+                          const isFractionalRow = isLastRow && hasFraction;
                           return (
                             <div key={row.monthNumber} className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs ${isFractionalRow ? "bg-purple-50/40" : ""}`}>
                               <span className="text-gray-500">
-                                {isFractionalRow
-                                  ? fractionLabel(fraction)
-                                  : row.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                                }
+                                {isFractionalRow ? fractionLabel(fraction) : row.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                               </span>
                               <span className="text-right text-gray-700">{formatCurrency(row.principalAmount)}</span>
                               <span className="text-right text-gray-500">{formatCurrency(row.interestAmount)}</span>
@@ -402,7 +358,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 </div>
               )}
 
-              {/* Pay at end info */}
               {form.payAtEnd && installmentSchedule.length > 0 && (
                 <div className="bg-purple-100/60 rounded-xl px-3 py-2.5">
                   <p className="text-xs text-purple-800">
@@ -499,9 +454,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               <p className="text-xs text-purple-700">
                 <span className="font-semibold">First payment</span> due{" "}
                 {new Date(installmentSchedule[0].dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
-                {hasFraction && (
-                  <> Last payment is a <span className="font-semibold">{fractionLabel(fraction).toLowerCase()}</span>.</>
-                )}
+                {hasFraction && <> Last payment is a <span className="font-semibold">{fractionLabel(fraction).toLowerCase()}</span>.</>}
               </p>
             </div>
           )}
@@ -535,39 +488,27 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
                     Grace period (days after due date)
                   </label>
-                  <input
-                    type="number" min="0" step="1"
-                    value={form.penaltyGraceDays}
+                  <input type="number" min="0" step="1" value={form.penaltyGraceDays}
                     onChange={(e) => setForm({ ...form, penaltyGraceDays: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
-                    placeholder="e.g. 3"
-                  />
+                    placeholder="e.g. 3" />
                   <p className="text-xs text-gray-400 mt-1">Penalty only applies after this many days past due</p>
                 </div>
 
                 {/* Penalty amount + type */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                      Penalty amount
-                    </label>
-                    <input
-                      type="number" min="0" step="0.01"
-                      value={form.penaltyAmount}
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Penalty amount</label>
+                    <input type="number" min="0" step="0.01" value={form.penaltyAmount}
                       onChange={(e) => setForm({ ...form, penaltyAmount: e.target.value })}
                       className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
-                      placeholder="e.g. 5"
-                    />
+                      placeholder="e.g. 5" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                      Type
-                    </label>
-                    <select
-                      value={form.penaltyType}
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Type</label>
+                    <select value={form.penaltyType}
                       onChange={(e) => setForm({ ...form, penaltyType: e.target.value as PenaltyType })}
-                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition bg-white"
-                    >
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition bg-white">
                       <option value="PERCENT">% of balance</option>
                       <option value="FLAT">₱ flat amount</option>
                     </select>
@@ -576,13 +517,10 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
 
                 {/* Frequency */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                    Frequency
-                  </label>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Frequency</label>
                   <div className="grid grid-cols-2 gap-2">
                     {(["ONCE", "DAILY", "WEEKLY", "MONTHLY"] as PenaltyFrequency[]).map((f) => (
-                      <button key={f} type="button"
-                        onClick={() => setForm({ ...form, penaltyFrequency: f })}
+                      <button key={f} type="button" onClick={() => setForm({ ...form, penaltyFrequency: f })}
                         className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all text-left ${
                           form.penaltyFrequency === f
                             ? "bg-orange-500 border-orange-500 text-white"
@@ -600,15 +538,26 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   </p>
                 </div>
 
-                {/* Preview */}
-                {form.penaltyAmount && (
-                  <div className="bg-white rounded-xl px-3 py-2.5 border border-orange-100">
-                    <p className="text-xs text-orange-700">
-                      <span className="font-semibold">Rule: </span>
-                      After {form.penaltyGraceDays || 0} day{Number(form.penaltyGraceDays) !== 1 ? "s" : ""} overdue,
-                      charge {form.penaltyType === "PERCENT" ? `${form.penaltyAmount}% of remaining balance` : `₱${form.penaltyAmount}`}
-                      {form.penaltyFrequency !== "ONCE" ? ` every ${form.penaltyFrequency.toLowerCase()}` : " (one-time)"}.
+                {/* Preview with exact amounts */}
+                {form.penaltyAmount && form.amount && Number(form.amount) > 0 && (
+                  <div className="bg-white rounded-xl px-3 py-2.5 border border-orange-100 space-y-1.5">
+                    <p className="text-xs font-semibold text-orange-700">Rule summary</p>
+                    <p className="text-xs text-orange-600">
+                      After <span className="font-semibold">{form.penaltyGraceDays || 0} day{Number(form.penaltyGraceDays) !== 1 ? "s" : ""}</span> overdue,
+                      charge{" "}
+                      <span className="font-semibold">
+                        {form.penaltyType === "PERCENT"
+                          ? `${form.penaltyAmount}% = ${formatCurrency(baseForPenalty * Number(form.penaltyAmount) / 100)}`
+                          : `₱${Number(form.penaltyAmount).toFixed(2)}`}
+                      </span>
+                      {" "}{form.penaltyFrequency === "ONCE" ? "(one-time)" : `every ${form.penaltyFrequency.toLowerCase()}`}.
                     </p>
+                    {examplePenalty() > 0 && (
+                      <p className="text-xs text-gray-500">
+                        Example at 30 days overdue:{" "}
+                        <span className="font-semibold text-orange-600">{formatCurrency(examplePenalty())}</span> total penalty
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

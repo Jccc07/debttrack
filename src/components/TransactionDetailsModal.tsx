@@ -1,6 +1,6 @@
 "use client";
 // src/components/TransactionDetailsModal.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Transaction, Installment, PenaltyPreview } from "@/types";
 import { formatCurrency, formatDate, getDaysUntilDue, computePenaltyPreview } from "@/lib/utils";
 import TransactionForm from "./TransactionForm";
@@ -41,15 +41,13 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const [applyingPenalty, setApplyingPenalty] = useState(false);
   const [removingPenaltyId, setRemovingPenaltyId] = useState<string | null>(null);
 
-  const daysLeft  = getDaysUntilDue(tx.dueDate);
-  const interest  = Number(tx.endAmount) - Number(tx.amount);
+  const daysLeft = getDaysUntilDue(tx.dueDate);
+  const interest = Number(tx.endAmount) - Number(tx.amount);
   const isPayAtEnd = tx.isInstallment && tx.payAtEnd;
 
-  // Total penalties already applied (transaction-level, not installment-specific)
-  const totalPenaltiesApplied = (tx.penalties ?? [])
-    .filter((p) => !p.installmentId)
-    .reduce((sum, p) => sum + Number(p.amount), 0);
-
+  // Total penalties applied at transaction level (not installment-specific)
+  const txLevelPenalties = (tx.penalties ?? []).filter((p) => !p.installmentId);
+  const totalPenaltiesApplied = txLevelPenalties.reduce((sum, p) => sum + Number(p.amount), 0);
   const grandTotal = Number(tx.endAmount) + totalPenaltiesApplied;
 
   async function refreshTx() {
@@ -100,7 +98,16 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
     dueDate: Date | string,
     alreadyApplied: number
   ): PenaltyPreview | null {
-    if (!tx.penaltyEnabled || !tx.penaltyGraceDays === null || !tx.penaltyType || !tx.penaltyAmount || !tx.penaltyFrequency) return null;
+    // Fix: correct null check
+    if (
+      !tx.penaltyEnabled ||
+      tx.penaltyGraceDays === null ||
+      tx.penaltyGraceDays === undefined ||
+      !tx.penaltyType ||
+      !tx.penaltyAmount ||
+      !tx.penaltyFrequency
+    ) return null;
+
     return computePenaltyPreview(
       baseAmount,
       dueDate,
@@ -158,21 +165,29 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
     await refreshTx();
   }
 
-  // Can we show the apply penalty button for the whole transaction?
+  // Can apply penalty button show?
   const canApplyTxPenalty =
     tx.penaltyEnabled &&
     tx.dueDate &&
     tx.status !== "PAID" &&
-    !tx.isInstallment && // installment penalties are per-row
+    !tx.isInstallment &&
     buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied) !== null;
 
-  // Same for payAtEnd installments
   const canApplyPayAtEndPenalty =
     tx.penaltyEnabled &&
     tx.dueDate &&
     tx.status !== "PAID" &&
     isPayAtEnd &&
     buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied) !== null;
+
+  // Compute pending penalty preview for display (without applying)
+  const pendingTxPenalty = tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && !tx.isInstallment
+    ? buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied)
+    : null;
+
+  const pendingPayAtEndPenalty = tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && isPayAtEnd
+    ? buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied)
+    : null;
 
   if (editing) {
     return (
@@ -218,7 +233,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                   )}
                   {tx.penaltyEnabled && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-600 text-xs font-medium">
-                      Penalty rule
+                      ⚠ Penalty rule on
                     </span>
                   )}
                 </div>
@@ -252,19 +267,53 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                 }
               </div>
               <div className={`rounded-xl p-3 ${tx.type === "LEND" ? "bg-blue-50" : "bg-red-50"}`}>
-                <p className="text-xs text-gray-400 mb-1">Total</p>
+                <p className="text-xs text-gray-400 mb-1">Subtotal</p>
                 <p className={`text-base font-bold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>
                   {formatCurrency(tx.endAmount)}
                 </p>
               </div>
             </div>
 
+            {/* Penalty rule info box — always show when enabled */}
+            {tx.penaltyEnabled && (
+              <div className="bg-orange-50 rounded-xl px-4 py-3 border border-orange-100">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-orange-700 uppercase tracking-wider mb-1">Penalty rule active</p>
+                    <p className="text-xs text-orange-600">
+                      After <span className="font-semibold">{tx.penaltyGraceDays} day{tx.penaltyGraceDays !== 1 ? "s" : ""}</span> overdue,
+                      charge{" "}
+                      <span className="font-semibold">
+                        {tx.penaltyType === "PERCENT"
+                          ? `${tx.penaltyAmount}% of balance`
+                          : `₱${Number(tx.penaltyAmount).toFixed(2)}`}
+                      </span>{" "}
+                      {tx.penaltyFrequency === "ONCE" ? "(one-time)" : `every ${tx.penaltyFrequency?.toLowerCase()}`}.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Pending penalty preview */}
+                {(pendingTxPenalty || pendingPayAtEndPenalty) && (
+                  <div className="mt-2 pt-2 border-t border-orange-100">
+                    <p className="text-xs text-orange-700">
+                      <span className="font-semibold">Penalty now due:</span>{" "}
+                      <span className="font-bold text-orange-800">
+                        +{formatCurrency((pendingTxPenalty ?? pendingPayAtEndPenalty)!.amount)}
+                      </span>
+                      {" "}— {(pendingTxPenalty ?? pendingPayAtEndPenalty)!.note}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Penalties applied (transaction-level) */}
-            {(tx.penalties ?? []).filter(p => !p.installmentId).length > 0 && (
+            {txLevelPenalties.length > 0 && (
               <div className="bg-orange-50 rounded-xl p-3 border border-orange-100">
                 <p className="text-xs font-medium text-orange-700 uppercase tracking-wider mb-2">Penalties applied</p>
                 <div className="space-y-1.5">
-                  {(tx.penalties ?? []).filter(p => !p.installmentId).map((p) => (
+                  {txLevelPenalties.map((p) => (
                     <div key={p.id} className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-orange-700">+{formatCurrency(p.amount)}</p>
@@ -285,10 +334,14 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center justify-between pt-2 mt-2 border-t border-orange-100">
-                  <span className="text-xs font-semibold text-orange-700">Grand total</span>
-                  <span className="text-sm font-bold text-orange-700">{formatCurrency(grandTotal)}</span>
-                </div>
+              </div>
+            )}
+
+            {/* Grand total with penalties */}
+            {totalPenaltiesApplied > 0 && (
+              <div className="flex items-center justify-between bg-orange-50 rounded-xl px-4 py-3 border border-orange-100">
+                <span className="text-sm font-semibold text-orange-800">Grand total (with penalties)</span>
+                <span className="text-base font-bold text-orange-800">{formatCurrency(grandTotal)}</span>
               </div>
             )}
 
@@ -302,7 +355,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                   <path d="M7 2v4M7 9.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                   <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
                 </svg>
-                Apply penalty
+                Apply penalty (+{formatCurrency((pendingTxPenalty ?? pendingPayAtEndPenalty)!.amount)})
               </button>
             )}
 
@@ -311,11 +364,15 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Payment schedule</p>
                 <InstallmentSchedule
-                  monthsFloat={tx.installmentMonths ?? undefined}
+                  monthsFloat={typeof tx.installmentMonths === "number" ? tx.installmentMonths : undefined}
                   installments={tx.installments}
                   onTogglePaid={handleInstallmentToggle}
                   payAtEnd={tx.payAtEnd}
                   penaltyEnabled={tx.penaltyEnabled}
+                  penaltyGraceDays={tx.penaltyGraceDays ?? undefined}
+                  penaltyType={tx.penaltyType ?? undefined}
+                  penaltyAmount={tx.penaltyAmount !== null ? Number(tx.penaltyAmount) : undefined}
+                  penaltyFrequency={tx.penaltyFrequency ?? undefined}
                   onApplyPenalty={tx.penaltyEnabled && !tx.payAtEnd ? openPenaltyForInstallment : undefined}
                 />
               </div>
@@ -339,18 +396,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               <div className="flex items-center justify-between py-3 border-t border-gray-50">
                 <span className="text-sm text-gray-500">Fully paid on</span>
                 <span className="text-sm font-medium text-green-600">{formatDate(tx.paidAt)}</span>
-              </div>
-            )}
-
-            {/* Penalty rule summary */}
-            {tx.penaltyEnabled && (
-              <div className="flex items-center justify-between py-3 border-t border-gray-50">
-                <span className="text-sm text-gray-500">Penalty rule</span>
-                <span className="text-xs text-orange-600 text-right">
-                  After {tx.penaltyGraceDays}d grace,{" "}
-                  {tx.penaltyType === "PERCENT" ? `${tx.penaltyAmount}%` : `₱${tx.penaltyAmount}`}{" "}
-                  {tx.penaltyFrequency?.toLowerCase()}
-                </span>
               </div>
             )}
 
