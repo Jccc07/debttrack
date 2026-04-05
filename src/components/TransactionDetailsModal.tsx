@@ -6,6 +6,7 @@ import { formatCurrency, formatDate, getDaysUntilDue, computePenaltyPreview } fr
 import TransactionForm from "./TransactionForm";
 import DeleteConfirmModal from "./DeleteConfirmModal";
 import InstallmentSchedule from "./InstallmentSchedule";
+import ShareModal from "./ShareModal";
 
 interface Props {
   transaction: Transaction;
@@ -33,12 +34,12 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const [marking, setMarking] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const daysLeft = getDaysUntilDue(tx.dueDate);
   const interest = Number(tx.endAmount) - Number(tx.amount);
   const isPayAtEnd = tx.isInstallment && tx.payAtEnd;
 
-  // ── Live penalty: computed purely from rule + current date, no DB state needed ──
   function computeLivePenalty(baseAmount: number, dueDate: Date | string) {
     if (
       !tx.penaltyEnabled ||
@@ -52,11 +53,10 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
       tx.penaltyType,
       Number(tx.penaltyAmount),
       tx.penaltyFrequency,
-      0 // always compute gross — no "already applied" offset
+      0
     );
   }
 
-  // Only compute for non-installment or payAtEnd (single due date) transactions
   const livePenalty =
     tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && (!tx.isInstallment || isPayAtEnd)
       ? computeLivePenalty(Number(tx.endAmount), tx.dueDate)
@@ -170,7 +170,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
           {/* Scrollable body */}
           <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
 
-            {/* Amount breakdown — 3 cards */}
+            {/* Amount breakdown */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-gray-50 rounded-xl p-3">
                 <p className="text-xs text-gray-400 mb-1">Principal</p>
@@ -192,7 +192,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
             </div>
 
-            {/* ── Total now due — auto-shown when penalty is actively accruing ── */}
+            {/* Total now due with penalty */}
             {showTotalDue && (
               <div className="rounded-xl border border-orange-200 bg-orange-50 overflow-hidden">
                 <div className="px-4 py-3 flex items-center justify-between">
@@ -202,7 +202,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                   </div>
                   <p className="text-2xl font-bold text-orange-700">{formatCurrency(totalNowDue)}</p>
                 </div>
-                {/* Step-by-step computation */}
                 <div className="border-t border-orange-100 divide-y divide-orange-100">
                   <div className="px-4 py-2 flex justify-between text-xs text-orange-600">
                     <span>Subtotal (principal + interest)</span>
@@ -229,7 +228,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
             )}
 
-            {/* Penalty rule summary (always visible when enabled) */}
+            {/* Penalty rule summary */}
             {tx.penaltyEnabled && (
               <div className="rounded-xl px-4 py-3 border bg-orange-50 border-orange-100">
                 <p className="text-xs font-semibold text-orange-700 uppercase tracking-wider mb-1">Penalty rule active</p>
@@ -330,6 +329,18 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               Edit
             </button>
             <button
+              onClick={() => setShowShare(true)}
+              className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="11" cy="3" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                <circle cx="3" cy="7" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                <circle cx="11" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M4.5 6.2l5-2.5M4.5 7.8l5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              Share
+            </button>
+            <button
               onClick={() => setShowDelete(true)}
               className="px-4 py-2.5 rounded-xl border border-red-100 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors"
             >
@@ -345,6 +356,14 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
           loading={deleting}
           onConfirm={handleDelete}
           onCancel={() => setShowDelete(false)}
+        />
+      )}
+
+      {showShare && (
+        <ShareModal
+          transaction={tx}
+          onClose={() => setShowShare(false)}
+          onUpdated={(updated) => { setTx(updated); onUpdated(updated); }}
         />
       )}
     </>

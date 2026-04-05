@@ -79,10 +79,13 @@ model Transaction {
   payAtEnd                Boolean      @default(false)
   // Penalty rule fields
   penaltyEnabled    Boolean   @default(false)
-  penaltyGraceDays  Int?      // days after due before penalty kicks in
-  penaltyType       String?   // "PERCENT" | "FLAT"
-  penaltyAmount     Decimal?  @db.Decimal(10, 2) // % of remaining or flat ₱
-  penaltyFrequency  String?   // "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY"
+  penaltyGraceDays  Int?
+  penaltyType       String?
+  penaltyAmount     Decimal?  @db.Decimal(10, 2)
+  penaltyFrequency  String?
+  // Share fields
+  shareToken        String?   @unique
+  shareExpiresAt    DateTime?
   installments      Installment[]
   penalties         Penalty[]
   notifications     Notification[]
@@ -92,6 +95,7 @@ model Transaction {
   @@index([userId])
   @@index([status])
   @@index([dueDate])
+  @@index([shareToken])
 }
 
 model Installment {
