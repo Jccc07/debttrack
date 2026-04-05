@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { computeEndAmount, computeInstallments, computeInstallmentTotal } from "@/lib/utils";
+import { computeEndAmount, computeInstallments } from "@/lib/utils";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -37,7 +37,10 @@ export async function GET(req: NextRequest) {
       orderBy,
       skip: (page - 1) * limit,
       take: limit,
-      include: { installments: { orderBy: { monthNumber: "asc" } } },
+      include: {
+        installments: { orderBy: { monthNumber: "asc" }, include: { penalties: { orderBy: { appliedAt: "desc" } } } },
+        penalties: { orderBy: { appliedAt: "desc" } },
+      },
     }),
     prisma.transaction.count({ where }),
   ]);
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
       type, amount, interestRate = 0, interestType = "PERCENT",
       counterparty, notes, transactionDate, dueDate,
       isInstallment = false, installmentMonths, installmentMethod,
+      installmentIntervalDays = 30,
       payAtEnd = false,
     } = body;
 
@@ -63,6 +67,7 @@ export async function POST(req: NextRequest) {
     }
 
     const txDate = new Date(transactionDate);
+    const intervalDays = Number(installmentIntervalDays) || 30;
 
     let endAmount: number;
     let txDueDate: Date | null;
@@ -74,11 +79,12 @@ export async function POST(req: NextRequest) {
         Number(interestRate),
         Number(installmentMonths),
         installmentMethod,
-        txDate
+        txDate,
+        intervalDays
       );
-      endAmount = installmentRows.reduce((sum, r) => sum + r.totalAmount, 0);
-      endAmount = Math.round(endAmount * 100) / 100;
-      // Due date = last installment's due date (same for both modes)
+      endAmount = Math.round(
+        installmentRows.reduce((sum, r) => sum + r.totalAmount, 0) * 100
+      ) / 100;
       txDueDate = installmentRows[installmentRows.length - 1].dueDate;
     } else {
       endAmount = computeEndAmount(Number(amount), Number(interestRate), interestType);
@@ -102,6 +108,7 @@ export async function POST(req: NextRequest) {
           isInstallment,
           installmentMonths: isInstallment ? Number(installmentMonths) : null,
           installmentMethod: isInstallment ? installmentMethod : null,
+          installmentIntervalDays: isInstallment ? intervalDays : null,
           payAtEnd: isInstallment ? payAtEnd : false,
         },
       });
@@ -122,7 +129,10 @@ export async function POST(req: NextRequest) {
 
       return tx.transaction.findUnique({
         where: { id: created.id },
-        include: { installments: { orderBy: { monthNumber: "asc" } } },
+        include: {
+        installments: { orderBy: { monthNumber: "asc" }, include: { penalties: { orderBy: { appliedAt: "desc" } } } },
+        penalties: { orderBy: { appliedAt: "desc" } },
+      },
       });
     });
 

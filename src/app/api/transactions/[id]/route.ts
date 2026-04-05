@@ -7,7 +7,13 @@ import { computeEndAmount, computeInstallments } from "@/lib/utils";
 async function getOwned(id: string, userId: string) {
   return prisma.transaction.findFirst({
     where: { id, userId },
-    include: { installments: { orderBy: { monthNumber: "asc" } } },
+    include: {
+      installments: {
+        orderBy: { monthNumber: "asc" },
+        include: { penalties: { orderBy: { appliedAt: "desc" } } },
+      },
+      penalties: { orderBy: { appliedAt: "desc" } },
+    },
   });
 }
 
@@ -31,31 +37,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // --- Installment transaction update ---
   if (existing.isInstallment) {
-    const newMonths = body.installmentMonths !== undefined
-      ? Number(body.installmentMonths)
-      : Number(existing.installmentMonths);
-    const newRate = body.interestRate !== undefined
-      ? Number(body.interestRate)
-      : Number(existing.interestRate);
-    const newMethod = body.installmentMethod ?? existing.installmentMethod;
-    const newAmount = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
+    const newMonths  = body.installmentMonths !== undefined ? Number(body.installmentMonths) : Number(existing.installmentMonths);
+    const newRate    = body.interestRate !== undefined ? Number(body.interestRate) : Number(existing.interestRate);
+    const newMethod  = body.installmentMethod ?? existing.installmentMethod;
+    const newAmount  = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
     const newPayAtEnd = body.payAtEnd !== undefined ? body.payAtEnd : existing.payAtEnd;
-    const txDate = body.transactionDate
-      ? new Date(body.transactionDate)
-      : new Date(existing.transactionDate);
+    const txDate     = body.transactionDate ? new Date(body.transactionDate) : new Date(existing.transactionDate);
 
-    const installmentRows = computeInstallments(
-      newAmount, newRate, newMonths, newMethod as "FLAT" | "REDUCING", txDate
-    );
-    const newEndAmount = Math.round(
-      installmentRows.reduce((sum, r) => sum + r.totalAmount, 0) * 100
-    ) / 100;
-    const newDueDate = installmentRows[installmentRows.length - 1].dueDate;
+    const installmentRows = computeInstallments(newAmount, newRate, newMonths, newMethod as "FLAT" | "REDUCING", txDate);
+    const newEndAmount    = Math.round(installmentRows.reduce((sum, r) => sum + r.totalAmount, 0) * 100) / 100;
+    const newDueDate      = installmentRows[installmentRows.length - 1].dueDate;
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Delete all installments and recreate with new schedule
       await tx.installment.deleteMany({ where: { transactionId: id } });
-
       await tx.installment.createMany({
         data: installmentRows.map((row) => ({
           transactionId: id,
@@ -84,20 +78,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           dueDate: newDueDate,
           status: "UNPAID",
           paidAt: null,
+          // Penalty rule updates
+          ...(body.penaltyEnabled !== undefined && { penaltyEnabled: body.penaltyEnabled }),
+          ...(body.penaltyGraceDays !== undefined && { penaltyGraceDays: body.penaltyGraceDays }),
+          ...(body.penaltyType !== undefined && { penaltyType: body.penaltyType }),
+          ...(body.penaltyAmount !== undefined && { penaltyAmount: body.penaltyAmount }),
+          ...(body.penaltyFrequency !== undefined && { penaltyFrequency: body.penaltyFrequency }),
         },
-        include: { installments: { orderBy: { monthNumber: "asc" } } },
+        include: {
+          installments: { orderBy: { monthNumber: "asc" }, include: { penalties: { orderBy: { appliedAt: "desc" } } } },
+          penalties: { orderBy: { appliedAt: "desc" } },
+        },
       });
     });
 
     return NextResponse.json(updated);
   }
 
-  // --- Regular (non-installment) transaction update ---
+  // --- Regular transaction update ---
   let endAmount = existing.endAmount;
   if (body.amount !== undefined || body.interestRate !== undefined || body.interestType) {
     const amount = Number(body.amount ?? existing.amount);
-    const rate = Number(body.interestRate ?? existing.interestRate);
-    const iType = body.interestType ?? existing.interestType;
+    const rate   = Number(body.interestRate ?? existing.interestRate);
+    const iType  = body.interestType ?? existing.interestType;
     endAmount = computeEndAmount(amount, rate, iType as "PERCENT" | "FLAT") as any;
   }
 
@@ -109,20 +112,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updated = await prisma.transaction.update({
     where: { id },
     data: {
-      ...(body.type !== undefined && { type: body.type }),
-      ...(body.amount !== undefined && { amount: body.amount }),
+      ...(body.type         !== undefined && { type: body.type }),
+      ...(body.amount       !== undefined && { amount: body.amount }),
       ...(body.interestRate !== undefined && { interestRate: body.interestRate }),
       ...(body.interestType !== undefined && { interestType: body.interestType }),
       ...(body.counterparty !== undefined && { counterparty: body.counterparty }),
-      ...(body.notes !== undefined && { notes: body.notes }),
-      ...(body.status !== undefined && { status: body.status }),
+      ...(body.notes        !== undefined && { notes: body.notes }),
+      ...(body.status       !== undefined && { status: body.status }),
       ...(body.transactionDate && { transactionDate: new Date(body.transactionDate) }),
       ...(dueDateUpdate !== undefined && { dueDate: dueDateUpdate }),
       endAmount,
       ...(body.status === "PAID" && !existing.paidAt ? { paidAt: new Date() } : {}),
-      ...(body.status && body.status !== "PAID" ? { paidAt: null } : {}),
+      ...(body.status && body.status !== "PAID"      ? { paidAt: null }        : {}),
+      // Penalty rule updates
+      ...(body.penaltyEnabled   !== undefined && { penaltyEnabled: body.penaltyEnabled }),
+      ...(body.penaltyGraceDays !== undefined && { penaltyGraceDays: body.penaltyGraceDays }),
+      ...(body.penaltyType      !== undefined && { penaltyType: body.penaltyType }),
+      ...(body.penaltyAmount    !== undefined && { penaltyAmount: body.penaltyAmount }),
+      ...(body.penaltyFrequency !== undefined && { penaltyFrequency: body.penaltyFrequency }),
     },
-    include: { installments: { orderBy: { monthNumber: "asc" } } },
+    include: {
+      installments: { orderBy: { monthNumber: "asc" }, include: { penalties: { orderBy: { appliedAt: "desc" } } } },
+      penalties: { orderBy: { appliedAt: "desc" } },
+    },
   });
 
   return NextResponse.json(updated);

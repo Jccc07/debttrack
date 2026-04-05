@@ -4,6 +4,18 @@ export type TransactionType = "LEND" | "OWE";
 export type TransactionStatus = "UNPAID" | "PAID" | "OVERDUE";
 export type InterestType = "PERCENT" | "FLAT";
 export type InstallmentMethod = "FLAT" | "REDUCING";
+export type PenaltyType = "PERCENT" | "FLAT";
+export type PenaltyFrequency = "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY";
+
+export interface Penalty {
+  id: string;
+  transactionId: string;
+  installmentId: string | null;
+  amount: number | string;
+  daysOverdue: number;
+  note: string;
+  appliedAt: string | Date;
+}
 
 export interface Installment {
   id: string;
@@ -15,6 +27,7 @@ export interface Installment {
   totalAmount: number | string;
   status: TransactionStatus;
   paidAt: string | Date | null;
+  penalties?: Penalty[];
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -33,12 +46,20 @@ export interface Transaction {
   dueDate: string | Date | null;
   status: TransactionStatus;
   paidAt: string | Date | null;
+  // Installment
   isInstallment: boolean;
   installmentMonths: number | null;
   installmentMethod: InstallmentMethod | null;
   installmentIntervalDays: number | null;
   payAtEnd: boolean;
   installments?: Installment[];
+  // Penalty rule
+  penaltyEnabled: boolean;
+  penaltyGraceDays: number | null;
+  penaltyType: PenaltyType | null;
+  penaltyAmount: number | string | null;
+  penaltyFrequency: PenaltyFrequency | null;
+  penalties?: Penalty[];
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -73,18 +94,11 @@ export interface InstallmentScheduleRow {
   remainingBalance: number;
 }
 
-// Interval preset definition
-export interface IntervalOption {
-  label: string;        // display name: "Every 2 weeks"
-  shortLabel: string;   // used in schedule rows: "Period", "Week", etc.
-  days: number;         // interval in days
-  rateLabel: string;    // label for interest rate field: "Biweekly rate (%)"
+// Penalty calculation result (frontend, before confirming)
+export interface PenaltyPreview {
+  amount: number;
+  occurrences: number;
+  daysOverdue: number;
+  daysAfterGrace: number;
+  note: string;
 }
-
-export const INTERVAL_OPTIONS: IntervalOption[] = [
-  { label: "Every 2 weeks",      shortLabel: "Period", days: 14, rateLabel: "Biweekly rate (%)" },
-  { label: "Every half month",   shortLabel: "Period", days: 15, rateLabel: "Semi-monthly rate (%)" },
-  { label: "Every month",        shortLabel: "Month",  days: 30, rateLabel: "Monthly rate (%)" },
-  { label: "Every 6 weeks",      shortLabel: "Period", days: 45, rateLabel: "6-week rate (%)" },
-  { label: "Every 2 months",     shortLabel: "Period", days: 60, rateLabel: "Bi-monthly rate (%)" },
-];

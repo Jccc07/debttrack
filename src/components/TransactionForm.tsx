@@ -1,7 +1,7 @@
 "use client";
 // src/components/TransactionForm.tsx
 import { useState, useMemo } from "react";
-import { Transaction, TransactionType, InterestType, InstallmentMethod } from "@/types";
+import { Transaction, TransactionType, InterestType, InstallmentMethod, PenaltyType, PenaltyFrequency } from "@/types";
 import { computeEndAmount, computeInstallments, formatCurrency, fractionLabel } from "@/lib/utils";
 
 interface TransactionFormProps {
@@ -37,6 +37,12 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     installmentMonths: String(initial?.installmentMonths ?? "3"),
     installmentMethod: (initial?.installmentMethod ?? "FLAT") as InstallmentMethod,
     payAtEnd: initial?.payAtEnd ?? false,
+    // Penalty rule
+    penaltyEnabled: initial?.penaltyEnabled ?? false,
+    penaltyGraceDays: String(initial?.penaltyGraceDays ?? "3"),
+    penaltyType: (initial?.penaltyType ?? "PERCENT") as PenaltyType,
+    penaltyAmount: String(initial?.penaltyAmount ?? "5"),
+    penaltyFrequency: (initial?.penaltyFrequency ?? "MONTHLY") as PenaltyFrequency,
   });
 
   const [loading, setLoading] = useState(false);
@@ -107,6 +113,20 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       } else {
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
+    }
+
+    // Always include penalty rule
+    payload.penaltyEnabled = form.penaltyEnabled;
+    if (form.penaltyEnabled) {
+      payload.penaltyGraceDays = parseInt(form.penaltyGraceDays) || 0;
+      payload.penaltyType = form.penaltyType;
+      payload.penaltyAmount = Number(form.penaltyAmount);
+      payload.penaltyFrequency = form.penaltyFrequency;
+    } else {
+      payload.penaltyGraceDays = null;
+      payload.penaltyType = null;
+      payload.penaltyAmount = null;
+      payload.penaltyFrequency = null;
     }
 
     const res = await fetch(url, {
@@ -485,6 +505,115 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               </p>
             </div>
           )}
+
+          {/* Penalty rule */}
+          <div>
+            <div className={`flex items-center justify-between py-3 px-4 rounded-xl border ${
+              form.penaltyEnabled ? "bg-orange-50 border-orange-100" : "bg-gray-50 border-gray-100"
+            }`}>
+              <div>
+                <p className="text-sm font-medium text-gray-800">Penalty rule</p>
+                <p className="text-xs text-gray-500 mt-0.5">Charge a fee when payment is overdue</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, penaltyEnabled: !form.penaltyEnabled })}
+                className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                  form.penaltyEnabled ? "bg-orange-500" : "bg-gray-200"
+                }`}
+              >
+                <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                  form.penaltyEnabled ? "translate-x-6" : "translate-x-1"
+                }`} />
+              </button>
+            </div>
+
+            {form.penaltyEnabled && (
+              <div className="mt-3 space-y-3 bg-orange-50/50 rounded-xl p-4 border border-orange-100">
+                {/* Grace days */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                    Grace period (days after due date)
+                  </label>
+                  <input
+                    type="number" min="0" step="1"
+                    value={form.penaltyGraceDays}
+                    onChange={(e) => setForm({ ...form, penaltyGraceDays: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+                    placeholder="e.g. 3"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Penalty only applies after this many days past due</p>
+                </div>
+
+                {/* Penalty amount + type */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                      Penalty amount
+                    </label>
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={form.penaltyAmount}
+                      onChange={(e) => setForm({ ...form, penaltyAmount: e.target.value })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+                      placeholder="e.g. 5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                      Type
+                    </label>
+                    <select
+                      value={form.penaltyType}
+                      onChange={(e) => setForm({ ...form, penaltyType: e.target.value as PenaltyType })}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition bg-white"
+                    >
+                      <option value="PERCENT">% of balance</option>
+                      <option value="FLAT">₱ flat amount</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Frequency */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                    Frequency
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["ONCE", "DAILY", "WEEKLY", "MONTHLY"] as PenaltyFrequency[]).map((f) => (
+                      <button key={f} type="button"
+                        onClick={() => setForm({ ...form, penaltyFrequency: f })}
+                        className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all text-left ${
+                          form.penaltyFrequency === f
+                            ? "bg-orange-500 border-orange-500 text-white"
+                            : "border-gray-200 text-gray-500 hover:border-gray-300"
+                        }`}>
+                        {f === "ONCE" ? "One-time" : f === "DAILY" ? "Daily" : f === "WEEKLY" ? "Weekly" : "Monthly"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    {form.penaltyFrequency === "ONCE" && "Penalty applies once regardless of how long overdue."}
+                    {form.penaltyFrequency === "DAILY" && "Penalty compounds every day past the grace period."}
+                    {form.penaltyFrequency === "WEEKLY" && "Penalty compounds every 7 days past the grace period."}
+                    {form.penaltyFrequency === "MONTHLY" && "Penalty compounds every 30 days past the grace period."}
+                  </p>
+                </div>
+
+                {/* Preview */}
+                {form.penaltyAmount && (
+                  <div className="bg-white rounded-xl px-3 py-2.5 border border-orange-100">
+                    <p className="text-xs text-orange-700">
+                      <span className="font-semibold">Rule: </span>
+                      After {form.penaltyGraceDays || 0} day{Number(form.penaltyGraceDays) !== 1 ? "s" : ""} overdue,
+                      charge {form.penaltyType === "PERCENT" ? `${form.penaltyAmount}% of remaining balance` : `₱${form.penaltyAmount}`}
+                      {form.penaltyFrequency !== "ONCE" ? ` every ${form.penaltyFrequency.toLowerCase()}` : " (one-time)"}.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Notes */}
           <div>

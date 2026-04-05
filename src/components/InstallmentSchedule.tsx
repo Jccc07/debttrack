@@ -1,7 +1,7 @@
 "use client";
 // src/components/InstallmentSchedule.tsx
 import { useState } from "react";
-import { Installment } from "@/types";
+import { Installment, Penalty } from "@/types";
 import { formatCurrency, formatDate, getDaysUntilDue, fractionLabel } from "@/lib/utils";
 
 interface InstallmentScheduleProps {
@@ -9,8 +9,10 @@ interface InstallmentScheduleProps {
   onTogglePaid: (installmentId: string, currentStatus: string) => Promise<void>;
   readonly?: boolean;
   payAtEnd?: boolean;
-  totalPeriods?: number; // total number of periods so we know which is the fractional one
-  monthsFloat?: number;  // original float e.g. 2.5
+  totalPeriods?: number;
+  monthsFloat?: number;
+  penaltyEnabled?: boolean;
+  onApplyPenalty?: (inst: Installment) => void;
 }
 
 /**
@@ -36,6 +38,8 @@ export default function InstallmentSchedule({
   readonly,
   payAtEnd,
   monthsFloat,
+  penaltyEnabled,
+  onApplyPenalty,
 }: InstallmentScheduleProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
@@ -224,8 +228,23 @@ export default function InstallmentSchedule({
                 <p className="text-xs text-gray-400">
                   {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
                 </p>
+                {/* Installment-level penalties */}
+                {(inst.penalties ?? []).length > 0 && (
+                  <p className="text-xs text-orange-600 font-medium mt-0.5">
+                    +{formatCurrency((inst.penalties ?? []).reduce((s, p) => s + Number(p.amount), 0))} penalty
+                  </p>
+                )}
               </div>
             </div>
+            {/* Per-installment apply penalty button */}
+            {penaltyEnabled && !isPaid && onApplyPenalty && (
+              <button
+                onClick={() => onApplyPenalty(inst)}
+                className="ml-8 mt-1 text-xs text-orange-500 hover:text-orange-700 hover:underline transition-colors"
+              >
+                + Apply penalty
+              </button>
+            )}
           );
         })}
       </div>

@@ -1,5 +1,5 @@
 // src/lib/utils.ts
-import { InstallmentScheduleRow } from "@/types";
+import { InstallmentScheduleRow, PenaltyPreview } from "@/types";
 
 export function computeEndAmount(
   amount: number,
@@ -45,10 +45,6 @@ export function cn(...classes: (string | undefined | false | null)[]): string {
   return classes.filter(Boolean).join(" ");
 }
 
-/**
- * Returns a human-readable label for the fractional part of a month count.
- * e.g. 0.5 → "Half month", 0.25 → "Quarter month"
- */
 export function fractionLabel(fraction: number): string {
   if (fraction === 0) return "";
   if (Math.abs(fraction - 0.5) < 0.001) return "Half month";
@@ -59,20 +55,6 @@ export function fractionLabel(fraction: number): string {
   return `${Math.round(fraction * 100)}% month`;
 }
 
-/**
- * Compute installment schedule supporting fractional month counts.
- *
- * e.g. months=2.5 produces:
- *   Period 1 — full month payment, due start+1mo
- *   Period 2 — full month payment, due start+2mo
- *   Period 3 — prorated (×0.5) payment, due start+2mo+15days
- *
- * @param principal   - loan amount
- * @param monthlyRate - interest rate per FULL month (as %, e.g. 2.4 = 2.4%)
- * @param months      - total duration in months, can be fractional (e.g. 1.5, 2.5)
- * @param method      - "FLAT" | "REDUCING"
- * @param startDate   - transaction date; first payment due 1 month after
- */
 export function computeInstallments(
   principal: number,
   monthlyRate: number,
@@ -83,31 +65,23 @@ export function computeInstallments(
   const schedule: InstallmentScheduleRow[] = [];
   const rate = monthlyRate / 100;
 
-  // Split into whole months + fractional remainder
   const wholeMonths = Math.floor(months);
-  const fraction    = round2(months - wholeMonths); // e.g. 0.5 for 2.5
+  const fraction    = round2(months - wholeMonths);
   const totalPeriods = wholeMonths + (fraction > 0 ? 1 : 0);
-
-  // Principal per full month = principal / total months (not total periods)
   const principalPerMonth = round2(principal / months);
 
   if (method === "FLAT") {
-    // Total interest = principal × rate × months (fractional months reduce interest proportionally)
-    const totalInterest     = round2(principal * rate * months);
-    const interestPerMonth  = round2(totalInterest / months); // per full month
-
+    const totalInterest    = round2(principal * rate * months);
+    const interestPerMonth = round2(totalInterest / months);
     let remaining = principal;
 
     for (let i = 1; i <= totalPeriods; i++) {
       const isFractional = i === totalPeriods && fraction > 0;
       const multiplier   = isFractional ? fraction : 1;
-
       const periodPrincipal = round2(principalPerMonth * multiplier);
       const periodInterest  = round2(interestPerMonth  * multiplier);
       const periodTotal     = round2(periodPrincipal + periodInterest);
-
       remaining = round2(remaining - periodPrincipal);
-
       schedule.push({
         monthNumber: i,
         dueDate: periodDueDate(startDate, wholeMonths, i, fraction),
@@ -118,19 +92,14 @@ export function computeInstallments(
       });
     }
   } else {
-    // Reducing balance — interest = remaining balance × rate × period_fraction
     let remaining = principal;
-
     for (let i = 1; i <= totalPeriods; i++) {
       const isFractional = i === totalPeriods && fraction > 0;
       const multiplier   = isFractional ? fraction : 1;
-
       const periodPrincipal = round2(principalPerMonth * multiplier);
       const periodInterest  = round2(remaining * rate * multiplier);
       const periodTotal     = round2(periodPrincipal + periodInterest);
-
       remaining = round2(remaining - periodPrincipal);
-
       schedule.push({
         monthNumber: i,
         dueDate: periodDueDate(startDate, wholeMonths, i, fraction),
@@ -145,21 +114,13 @@ export function computeInstallments(
   return schedule;
 }
 
-/**
- * Calculate the due date for period i.
- * Whole-month periods: start + i months (calendar month arithmetic).
- * Fractional final period: start + wholeMonths months + fraction×30 days.
- */
 function periodDueDate(startDate: Date, wholeMonths: number, periodIndex: number, fraction: number): Date {
   const isFractionalPeriod = fraction > 0 && periodIndex > wholeMonths;
-
   if (!isFractionalPeriod) {
-    // Regular calendar month addition
     const d = new Date(startDate);
     d.setMonth(d.getMonth() + periodIndex);
     return d;
   } else {
-    // After all whole months, add fractional days (fraction × 30)
     const d = new Date(startDate);
     d.setMonth(d.getMonth() + wholeMonths);
     d.setDate(d.getDate() + Math.round(fraction * 30));
@@ -175,6 +136,70 @@ export function computeInstallmentTotal(
 ): number {
   const schedule = computeInstallments(principal, monthlyRate, months, method, new Date());
   return round2(schedule.reduce((sum, row) => sum + row.totalAmount, 0));
+}
+
+/**
+ * Compute how much penalty should be applied right now.
+ *
+ * @param baseAmount      - the amount the penalty is calculated against
+ * @param dueDate         - original due date
+ * @param graceDays       - days after due before penalty starts
+ * @param penaltyType     - "PERCENT" or "FLAT"
+ * @param penaltyAmount   - % of base or flat ₱ per occurrence
+ * @param frequency       - "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY"
+ * @param alreadyApplied  - total penalties already applied (to avoid double-charging)
+ * @param referenceDate   - defaults to today (for testing)
+ */
+export function computePenaltyPreview(
+  baseAmount: number,
+  dueDate: Date | string,
+  graceDays: number,
+  penaltyType: "PERCENT" | "FLAT",
+  penaltyAmount: number,
+  frequency: "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY",
+  alreadyApplied: number = 0,
+  referenceDate: Date = new Date()
+): PenaltyPreview | null {
+  const today = new Date(referenceDate);
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+
+  const daysOverdue = Math.floor((today.getTime() - due.getTime()) / 86400000);
+  if (daysOverdue <= 0) return null; // not yet overdue
+
+  const daysAfterGrace = daysOverdue - graceDays;
+  if (daysAfterGrace <= 0) return null; // still within grace period
+
+  // How many occurrences have elapsed
+  let occurrences: number;
+  if (frequency === "ONCE")    occurrences = 1;
+  else if (frequency === "DAILY")   occurrences = daysAfterGrace;
+  else if (frequency === "WEEKLY")  occurrences = Math.floor(daysAfterGrace / 7);
+  else /* MONTHLY */                occurrences = Math.floor(daysAfterGrace / 30);
+
+  if (occurrences < 1) return null;
+
+  // Per-occurrence penalty amount
+  const perOccurrence = penaltyType === "PERCENT"
+    ? round2(baseAmount * (penaltyAmount / 100))
+    : round2(penaltyAmount);
+
+  const grossPenalty = round2(perOccurrence * occurrences);
+  // Subtract already-applied penalties so we only suggest the new delta
+  const newPenalty = round2(Math.max(0, grossPenalty - alreadyApplied));
+
+  if (newPenalty <= 0) return null;
+
+  const freqLabel: Record<string, string> = {
+    ONCE: "one-time", DAILY: "daily", WEEKLY: "weekly", MONTHLY: "monthly",
+  };
+
+  const note = penaltyType === "PERCENT"
+    ? `${penaltyAmount}% ${freqLabel[frequency]} penalty × ${occurrences} occurrence${occurrences > 1 ? "s" : ""} (${daysOverdue}d overdue, ${graceDays}d grace)`
+    : `₱${penaltyAmount} ${freqLabel[frequency]} penalty × ${occurrences} occurrence${occurrences > 1 ? "s" : ""} (${daysOverdue}d overdue, ${graceDays}d grace)`;
+
+  return { amount: newPenalty, occurrences, daysOverdue, daysAfterGrace, note };
 }
 
 function round2(n: number): number {
