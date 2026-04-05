@@ -57,40 +57,49 @@ model VerificationToken {
 }
 
 model Transaction {
-  id              String        @id @default(uuid())
-  userId          String
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type            String
-  amount          Decimal       @db.Decimal(12, 2)
-  interestRate    Decimal       @default(0) @db.Decimal(8, 4)
-  interestType    String        @default("PERCENT")
-  endAmount       Decimal       @db.Decimal(12, 2)
-  counterparty    String?
-  notes           String?
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type String
+  amount Decimal @db.Decimal(12, 2)
+  interestRate Decimal @default(0) @db.Decimal(8, 4)
+  interestType String @default("PERCENT")
+  endAmount Decimal @db.Decimal(12, 2)
+
+  counterparty String?
+  counterpartyEmail String? // ✅ KEEP (added, useful for email notifications)
+
+  notes String?
   transactionDate DateTime
-  dueDate         DateTime?
-  status          String        @default("UNPAID")
-  paidAt          DateTime?
+  dueDate DateTime?
+  status String @default("UNPAID")
+  paidAt DateTime?
+
   // Installment fields
-  isInstallment           Boolean      @default(false)
-  installmentMonths       Float?
-  installmentMethod       String?
+  isInstallment Boolean @default(false)
+  installmentMonths Float?
+  installmentMethod String?
   installmentIntervalDays Int?
-  payAtEnd                Boolean      @default(false)
+  payAtEnd Boolean @default(false)
+
   // Penalty rule fields
-  penaltyEnabled    Boolean   @default(false)
-  penaltyGraceDays  Int?
-  penaltyType       String?
-  penaltyAmount     Decimal?  @db.Decimal(10, 2)
-  penaltyFrequency  String?
-  // Share fields
-  shareToken        String?   @unique
-  shareExpiresAt    DateTime?
-  installments      Installment[]
-  penalties         Penalty[]
-  notifications     Notification[]
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  penaltyEnabled Boolean @default(false)
+  penaltyGraceDays Int?
+  penaltyType String?
+  penaltyAmount Decimal? @db.Decimal(10, 2)
+  penaltyFrequency String?
+
+  // Share functionality
+  shareToken String? @unique
+  shareExpiresAt DateTime?
+
+  installments Installment[]
+  penalties Penalty[]
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
