@@ -2,7 +2,7 @@
 // src/components/TransactionForm.tsx
 import { useState, useMemo } from "react";
 import { Transaction, TransactionType, InterestType, InstallmentMethod } from "@/types";
-import { computeEndAmount, computeInstallments, formatCurrency } from "@/lib/utils";
+import { computeEndAmount, computeInstallments, formatCurrency, fractionLabel } from "@/lib/utils";
 
 interface TransactionFormProps {
   onClose: () => void;
@@ -11,6 +11,9 @@ interface TransactionFormProps {
 }
 
 const today = new Date().toISOString().split("T")[0];
+
+// Allowed month steps shown in the dropdown suggestions
+const MONTH_PRESETS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 9, 12, 18, 24];
 
 export default function TransactionForm({ onClose, onSaved, initial }: TransactionFormProps) {
   const isEdit = !!initial?.id;
@@ -40,18 +43,23 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
   const [error, setError] = useState("");
   const [showSchedulePreview, setShowSchedulePreview] = useState(false);
 
+  // Parse months as float
+  const monthsFloat = parseFloat(form.installmentMonths) || 0;
+  const wholeMonths = Math.floor(monthsFloat);
+  const fraction    = Math.round((monthsFloat - wholeMonths) * 100) / 100;
+  const hasFraction = fraction > 0;
+  const totalPeriods = wholeMonths + (hasFraction ? 1 : 0);
+
   const installmentSchedule = useMemo(() => {
-    if (!form.isInstallment || !form.amount || !form.installmentMonths) return [];
-    const months = parseInt(form.installmentMonths);
-    if (isNaN(months) || months < 1) return [];
+    if (!form.isInstallment || !form.amount || monthsFloat < 0.5) return [];
     return computeInstallments(
       Number(form.amount),
       Number(form.interestRate),
-      months,
+      monthsFloat,
       form.installmentMethod,
       new Date(form.transactionDate)
     );
-  }, [form.isInstallment, form.amount, form.interestRate, form.installmentMonths, form.installmentMethod, form.transactionDate]);
+  }, [form.isInstallment, form.amount, form.interestRate, form.installmentMonths, form.installmentMethod, form.transactionDate, monthsFloat]);
 
   const installmentTotal = installmentSchedule.reduce((s, r) => s + r.totalAmount, 0);
   const simpleTotal = form.amount
@@ -61,9 +69,15 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
+    if (form.isInstallment && monthsFloat < 0.5) {
+      setError("Minimum installment duration is 0.5 months.");
+      return;
+    }
+
     setLoading(true);
 
-    const url = isEdit ? `/api/transactions/${initial!.id}` : "/api/transactions";
+    const url    = isEdit ? `/api/transactions/${initial!.id}` : "/api/transactions";
     const method = isEdit ? "PATCH" : "POST";
 
     const payload: Record<string, unknown> = {
@@ -79,7 +93,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     if (!isEdit) {
       payload.isInstallment = form.isInstallment;
       if (form.isInstallment) {
-        payload.installmentMonths = parseInt(form.installmentMonths);
+        payload.installmentMonths = monthsFloat;
         payload.installmentMethod = form.installmentMethod;
         payload.payAtEnd = form.payAtEnd;
       } else {
@@ -87,7 +101,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       }
     } else {
       if (isExistingInstallment) {
-        payload.installmentMonths = parseInt(form.installmentMonths);
+        payload.installmentMonths = monthsFloat;
         payload.installmentMethod = form.installmentMethod;
         payload.payAtEnd = form.payAtEnd;
       } else {
@@ -174,8 +188,8 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 <p className="text-sm font-medium text-purple-900">Installment plan</p>
                 <p className="text-xs text-purple-600 mt-0.5">
                   {isExistingInstallment
-                    ? "Enabled — you can update months and rate below"
-                    : "Split into monthly payments"}
+                    ? "Enabled — update duration and rate below"
+                    : "Split into periodic payments"}
                 </p>
               </div>
               <button
@@ -196,23 +210,82 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
           {/* Installment options */}
           {form.isInstallment && (
             <div className="space-y-3 bg-purple-50/50 rounded-xl p-4 border border-purple-100">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Months</label>
-                  <input type="number" min="2" max="60" step="1"
+
+              {/* Duration input */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                  Duration (months)
+                </label>
+                <div className="space-y-2">
+                  <input
+                    type="number"
+                    min="0.5"
+                    max="120"
+                    step="0.5"
                     value={form.installmentMonths}
                     onChange={(e) => setForm({ ...form, installmentMonths: e.target.value })}
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                    placeholder="e.g. 6" />
+                    placeholder="e.g. 1.5, 2.5, 6"
+                  />
+                  {/* Quick preset chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {MONTH_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setForm({ ...form, installmentMonths: String(preset) })}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+                          parseFloat(form.installmentMonths) === preset
+                            ? "bg-purple-600 border-purple-600 text-white"
+                            : "border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-700"
+                        }`}
+                      >
+                        {preset % 1 === 0 ? `${preset}mo` : `${preset}mo`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Monthly rate (%)</label>
-                  <input type="number" min="0" step="0.01"
-                    value={form.interestRate}
-                    onChange={(e) => setForm({ ...form, interestRate: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                    placeholder="e.g. 2.4" />
-                </div>
+
+                {/* Duration breakdown hint */}
+                {monthsFloat >= 0.5 && (
+                  <div className="mt-2 px-3 py-2 bg-white rounded-lg border border-purple-100">
+                    <p className="text-xs text-purple-700">
+                      {hasFraction ? (
+                        <>
+                          <span className="font-semibold">{totalPeriods} payments:</span>{" "}
+                          {wholeMonths > 0 && `${wholeMonths} full month${wholeMonths > 1 ? "s" : ""}`}
+                          {wholeMonths > 0 && hasFraction && " + "}
+                          {hasFraction && <span className="font-semibold">{fractionLabel(fraction)}</span>}
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-semibold">{wholeMonths} payment{wholeMonths > 1 ? "s" : ""}</span>, one per month
+                        </>
+                      )}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Rate */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                  Monthly interest rate (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.interestRate}
+                  onChange={(e) => setForm({ ...form, interestRate: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
+                  placeholder="e.g. 2.4"
+                />
+                {hasFraction && (
+                  <p className="text-xs text-purple-600 mt-1">
+                    The {fractionLabel(fraction).toLowerCase()} payment will use a prorated rate ({fractionLabel(fraction).toLowerCase()} × {form.interestRate}%).
+                  </p>
+                )}
               </div>
 
               {/* Method */}
@@ -229,7 +302,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                       }`}>
                       <span className="block font-semibold">{m === "FLAT" ? "Flat rate" : "Reducing balance"}</span>
                       <span className={`block text-xs mt-0.5 ${form.installmentMethod === m ? "text-purple-100" : "text-gray-400"}`}>
-                        {m === "FLAT" ? "Equal payments" : "Lower each month"}
+                        {m === "FLAT" ? "Equal payments" : "Lower each period"}
                       </span>
                     </button>
                   ))}
@@ -240,7 +313,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               <div className="flex items-center justify-between py-2.5 px-3 bg-white rounded-xl border border-purple-100">
                 <div>
                   <p className="text-sm font-medium text-gray-800">Pay at end</p>
-                  <p className="text-xs text-gray-400 mt-0.5">One lump sum payment on the final due date</p>
+                  <p className="text-xs text-gray-400 mt-0.5">One lump sum on the final due date</p>
                 </div>
                 <button
                   type="button"
@@ -272,22 +345,31 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   {showSchedulePreview && (
                     <div className="bg-white rounded-xl border border-purple-100 overflow-hidden">
                       <div className="grid grid-cols-4 gap-2 px-3 py-2 text-xs font-medium text-gray-400 uppercase border-b border-gray-50">
-                        <span>Month</span>
+                        <span>Period</span>
                         <span className="text-right">Principal</span>
                         <span className="text-right">Interest</span>
                         <span className="text-right">Total</span>
                       </div>
-                      <div className="max-h-48 overflow-y-auto divide-y divide-gray-50">
-                        {installmentSchedule.map((row) => (
-                          <div key={row.monthNumber} className="grid grid-cols-4 gap-2 px-3 py-2 text-xs">
-                            <span className="text-gray-500">
-                              {row.dueDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" })}
-                            </span>
-                            <span className="text-right text-gray-700">{formatCurrency(row.principalAmount)}</span>
-                            <span className="text-right text-gray-500">{formatCurrency(row.interestAmount)}</span>
-                            <span className="text-right font-semibold text-gray-900">{formatCurrency(row.totalAmount)}</span>
-                          </div>
-                        ))}
+                      <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
+                        {installmentSchedule.map((row, idx) => {
+                          const isLast = idx === installmentSchedule.length - 1;
+                          const isFractionalRow = isLast && hasFraction;
+                          return (
+                            <div key={row.monthNumber} className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs ${isFractionalRow ? "bg-purple-50/40" : ""}`}>
+                              <span className="text-gray-500">
+                                {isFractionalRow
+                                  ? fractionLabel(fraction)
+                                  : row.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                }
+                              </span>
+                              <span className="text-right text-gray-700">{formatCurrency(row.principalAmount)}</span>
+                              <span className="text-right text-gray-500">{formatCurrency(row.interestAmount)}</span>
+                              <span className={`text-right font-semibold ${isFractionalRow ? "text-purple-700" : "text-gray-900"}`}>
+                                {formatCurrency(row.totalAmount)}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                       <div className="grid grid-cols-4 gap-2 px-3 py-2 border-t border-gray-100 bg-purple-50">
                         <span className="text-xs font-semibold text-purple-700">Total</span>
@@ -307,8 +389,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                     <span className="font-semibold">Single due date:</span>{" "}
                     {new Date(installmentSchedule[installmentSchedule.length - 1].dueDate)
                       .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.
-                    Full amount of <span className="font-semibold">{formatCurrency(installmentTotal)}</span> due then.
-                    You'll be notified once when it's approaching.
+                    {" "}Full amount of <span className="font-semibold">{formatCurrency(installmentTotal)}</span> due then.
                   </p>
                 </div>
               )}
@@ -316,14 +397,14 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               {isExistingInstallment && (
                 <div className="bg-amber-50 rounded-xl px-3 py-2.5 border border-amber-100">
                   <p className="text-xs text-amber-700">
-                    <span className="font-semibold">Note:</span> Changing months or rate will reset the payment schedule.
+                    <span className="font-semibold">Note:</span> Changing duration or rate will reset the payment schedule.
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          {/* Interest (for non-installment) */}
+          {/* Interest — non-installment only */}
           {!form.isInstallment && (
             <>
               <div className="grid grid-cols-2 gap-3">
@@ -370,7 +451,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition" />
           </div>
 
-          {/* Due date — only for non-installment */}
+          {/* Due date — non-installment only */}
           {!form.isInstallment && (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -392,12 +473,15 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           )}
 
-          {/* Installment due date info */}
-          {form.isInstallment && !isExistingInstallment && !form.payAtEnd && installmentSchedule.length > 0 && (
+          {/* Installment first payment info */}
+          {form.isInstallment && !form.payAtEnd && installmentSchedule.length > 0 && (
             <div className="bg-purple-50 rounded-xl px-4 py-3">
               <p className="text-xs text-purple-700">
-                <span className="font-semibold">Due dates</span> are auto-calculated monthly from the transaction date.
-                First payment due {new Date(installmentSchedule[0].dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
+                <span className="font-semibold">First payment</span> due{" "}
+                {new Date(installmentSchedule[0].dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
+                {hasFraction && (
+                  <> Last payment is a <span className="font-semibold">{fractionLabel(fraction).toLowerCase()}</span>.</>
+                )}
               </p>
             </div>
           )}

@@ -31,16 +31,8 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const daysLeft = getDaysUntilDue(tx.dueDate);
   const interest = Number(tx.endAmount) - Number(tx.amount);
 
-  async function refreshTx() {
-    const res = await fetch(`/api/transactions/${tx.id}`);
-    if (res.ok) {
-      const updated = await res.json();
-      setTx(updated);
-      onUpdated(updated);
-    }
-  }
-
   async function togglePaid() {
+    if (tx.isInstallment) return; // installments are toggled individually
     setMarking(true);
     const newStatus = tx.status === "PAID" ? "UNPAID" : "PAID";
     const res = await fetch(`/api/transactions/${tx.id}`, {
@@ -61,7 +53,11 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
       body: JSON.stringify({ status: currentStatus === "PAID" ? "UNPAID" : "PAID" }),
     });
     if (!res.ok) return;
-    await refreshTx();
+    // Refresh transaction data
+    const txRes = await fetch(`/api/transactions/${tx.id}`);
+    const updated = await txRes.json();
+    setTx(updated);
+    onUpdated(updated);
   }
 
   async function handleDelete() {
@@ -78,9 +74,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
     );
   }
 
-  // payAtEnd installments use a single mark paid/unpaid like regular transactions
-  const isPayAtEnd = tx.isInstallment && tx.payAtEnd;
-
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
@@ -95,16 +88,11 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
               <div>
                 <p className="text-base font-semibold text-gray-900">{tx.counterparty ?? "Unknown"}</p>
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1.5">
                   <p className="text-xs text-gray-400">{tx.type === "LEND" ? "Lent" : "Borrowed"} · {formatDate(tx.transactionDate)}</p>
                   {tx.isInstallment && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">
                       {tx.installmentMonths}× installment
-                    </span>
-                  )}
-                  {isPayAtEnd && (
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-xs font-medium">
-                      Pay at end
                     </span>
                   )}
                 </div>
@@ -146,18 +134,16 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Payment schedule</p>
                 <InstallmentSchedule
+                  monthsFloat={tx.installmentMonths ?? undefined}
                   installments={tx.installments}
                   onTogglePaid={handleInstallmentToggle}
-                  payAtEnd={tx.payAtEnd}
                 />
               </div>
             ) : (
               <div className="flex items-center justify-between py-3 border-t border-gray-50">
                 <span className="text-sm text-gray-500">Due date</span>
                 <div className="text-right">
-                  <span className="text-sm font-medium text-gray-900">
-                    {tx.dueDate ? formatDate(tx.dueDate) : "No due date"}
-                  </span>
+                  <span className="text-sm font-medium text-gray-900">{formatDate(tx.dueDate)}</span>
                   {tx.dueDate && tx.status !== "PAID" && daysLeft !== null && (
                     <span className={`ml-2 text-xs ${daysLeft < 0 ? "text-red-500" : daysLeft <= 3 ? "text-amber-600" : "text-gray-400"}`}>
                       {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : daysLeft === 0 ? "due today" : `${daysLeft}d left`}
@@ -184,8 +170,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
 
           {/* Actions */}
           <div className="px-6 pb-5 pt-3 flex gap-2 border-t border-gray-50 flex-shrink-0">
-            {/* Show mark paid for non-installment OR payAtEnd installments */}
-            {(!tx.isInstallment || isPayAtEnd) && (
+            {!tx.isInstallment && (
               <button onClick={togglePaid} disabled={marking}
                 className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
                   tx.status === "PAID" ? "border border-gray-200 text-gray-600 hover:bg-gray-50" : "bg-green-600 hover:bg-green-700 text-white"}`}>

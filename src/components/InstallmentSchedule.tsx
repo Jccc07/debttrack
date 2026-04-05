@@ -2,24 +2,55 @@
 // src/components/InstallmentSchedule.tsx
 import { useState } from "react";
 import { Installment } from "@/types";
-import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
+import { formatCurrency, formatDate, getDaysUntilDue, fractionLabel } from "@/lib/utils";
 
 interface InstallmentScheduleProps {
   installments: Installment[];
   onTogglePaid: (installmentId: string, currentStatus: string) => Promise<void>;
   readonly?: boolean;
   payAtEnd?: boolean;
+  totalPeriods?: number; // total number of periods so we know which is the fractional one
+  monthsFloat?: number;  // original float e.g. 2.5
 }
 
-export default function InstallmentSchedule({ installments, onTogglePaid, readonly, payAtEnd }: InstallmentScheduleProps) {
+/**
+ * Returns the row label for a given period index.
+ * - Whole-month periods: "Month 1", "Month 2", etc.
+ * - Fractional last period: "Half month", "Quarter month", etc.
+ */
+function periodLabel(index: number, total: number, monthsFloat: number): string {
+  const wholeMonths = Math.floor(monthsFloat);
+  const fraction    = Math.round((monthsFloat - wholeMonths) * 100) / 100;
+  const hasFraction = fraction > 0;
+
+  // This is the fractional period
+  if (hasFraction && index === total) {
+    return fractionLabel(fraction);
+  }
+  return `Month ${index}`;
+}
+
+export default function InstallmentSchedule({
+  installments,
+  onTogglePaid,
+  readonly,
+  payAtEnd,
+  monthsFloat,
+}: InstallmentScheduleProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const paidCount = installments.filter((i) => i.status === "PAID").length;
-  const totalCount = installments.length;
+  const totalCount    = installments.length;
+  const paidCount     = installments.filter((i) => i.status === "PAID").length;
+  const totalAmount   = installments.reduce((sum, i) => sum + Number(i.totalAmount), 0);
   const remainingAmount = installments
     .filter((i) => i.status !== "PAID")
     .reduce((sum, i) => sum + Number(i.totalAmount), 0);
-  const totalAmount = installments.reduce((sum, i) => sum + Number(i.totalAmount), 0);
+
+  // Detect fractional setup from monthsFloat prop
+  const resolvedMonths  = monthsFloat ?? totalCount;
+  const wholeMonths     = Math.floor(resolvedMonths);
+  const fraction        = Math.round((resolvedMonths - wholeMonths) * 100) / 100;
+  const hasFraction     = fraction > 0;
 
   async function handleToggle(inst: Installment) {
     if (readonly || payAtEnd) return;
@@ -28,12 +59,11 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
     setTogglingId(null);
   }
 
-  // For payAtEnd — show a simple schedule reference with no checkboxes
+  // ── payAtEnd mode — read-only reference schedule + single due date banner ──
   if (payAtEnd) {
     const lastInstallment = installments[installments.length - 1];
     return (
       <div className="space-y-3">
-        {/* Single due date banner */}
         <div className="bg-purple-50 rounded-xl px-4 py-3 border border-purple-100">
           <div className="flex items-center justify-between">
             <div>
@@ -47,25 +77,37 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
           </div>
         </div>
 
-        {/* Monthly breakdown — read only reference */}
         <div>
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Monthly breakdown (reference)</p>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+            Breakdown (reference only)
+          </p>
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
             <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
-              {installments.map((inst) => (
-                <div key={inst.id} className="flex items-center gap-3 px-3 py-2.5">
-                  <div className="flex-shrink-0 w-14">
-                    <span className="text-xs font-semibold text-gray-500">Month {inst.monthNumber}</span>
+              {installments.map((inst, idx) => {
+                const label   = periodLabel(idx + 1, totalCount, resolvedMonths);
+                const isLast  = idx === totalCount - 1;
+                const isFrac  = isLast && hasFraction;
+                return (
+                  <div key={inst.id} className={`flex items-center gap-3 px-3 py-2.5 ${isFrac ? "bg-purple-50/40" : ""}`}>
+                    <div className="flex-shrink-0 w-24">
+                      <span className={`text-xs font-semibold ${isFrac ? "text-purple-600" : "text-gray-500"}`}>
+                        {label}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-600">{formatDate(inst.dueDate)}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-sm font-semibold ${isFrac ? "text-purple-700" : "text-gray-900"}`}>
+                        {formatCurrency(inst.totalAmount)}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-600">{formatDate(inst.dueDate)}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(inst.totalAmount)}</p>
-                    <p className="text-xs text-gray-400">{formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -73,7 +115,7 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
     );
   }
 
-  // Regular installment schedule with checkboxes
+  // ── Regular installment schedule with checkboxes ──
   return (
     <div className="space-y-3">
       {/* Progress summary */}
@@ -90,23 +132,25 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
         />
       </div>
 
-      {/* Installment rows */}
+      {/* Rows */}
       <div className="space-y-2">
-        {installments.map((inst) => {
-          const daysLeft = getDaysUntilDue(inst.dueDate);
-          const isPaid = inst.status === "PAID";
+        {installments.map((inst, idx) => {
+          const daysLeft  = getDaysUntilDue(inst.dueDate);
+          const isPaid    = inst.status === "PAID";
           const isOverdue = inst.status === "OVERDUE";
-          const toggling = togglingId === inst.id;
+          const toggling  = togglingId === inst.id;
+          const isLast    = idx === totalCount - 1;
+          const isFrac    = isLast && hasFraction;
+          const label     = periodLabel(idx + 1, totalCount, resolvedMonths);
 
           return (
             <div
               key={inst.id}
               className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                isPaid
-                  ? "bg-green-50/50 border-green-100"
-                  : isOverdue
-                  ? "bg-red-50/50 border-red-100"
-                  : "bg-gray-50 border-gray-100"
+                isPaid    ? "bg-green-50/50 border-green-100"
+                : isOverdue ? "bg-red-50/50 border-red-100"
+                : isFrac  ? "bg-purple-50/30 border-purple-100"
+                :             "bg-gray-50 border-gray-100"
               }`}
             >
               {/* Checkbox */}
@@ -115,11 +159,9 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
                   onClick={() => handleToggle(inst)}
                   disabled={toggling}
                   className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                    isPaid
-                      ? "bg-green-500 border-green-500"
-                      : isOverdue
-                      ? "border-red-400 hover:border-red-500"
-                      : "border-gray-300 hover:border-green-400"
+                    isPaid    ? "bg-green-500 border-green-500"
+                    : isOverdue ? "border-red-400 hover:border-red-500"
+                    :             "border-gray-300 hover:border-green-400"
                   }`}
                   title={isPaid ? "Mark as unpaid" : "Mark as paid"}
                 >
@@ -133,23 +175,32 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
                 </button>
               )}
 
-              {/* Month label */}
-              <div className="flex-shrink-0 w-16">
+              {/* Label */}
+              <div className="flex-shrink-0 w-24">
                 <span className={`text-xs font-semibold ${
-                  isPaid ? "text-green-700" : isOverdue ? "text-red-600" : "text-gray-600"
+                  isPaid    ? "text-green-700"
+                  : isOverdue ? "text-red-600"
+                  : isFrac  ? "text-purple-600"
+                  :             "text-gray-600"
                 }`}>
-                  Month {inst.monthNumber}
+                  {label}
                 </span>
+                {isFrac && (
+                  <span className="block text-xs text-purple-400">prorated</span>
+                )}
               </div>
 
-              {/* Due date */}
+              {/* Due date + urgency */}
               <div className="flex-1 min-w-0">
                 <p className={`text-sm ${isPaid ? "line-through text-gray-400" : "text-gray-700"}`}>
                   {formatDate(inst.dueDate)}
                 </p>
                 {!isPaid && daysLeft !== null && (
                   <p className={`text-xs ${
-                    daysLeft < 0 ? "text-red-500" : daysLeft === 0 ? "text-orange-500" : daysLeft <= 3 ? "text-amber-600" : "text-gray-400"
+                    daysLeft < 0 ? "text-red-500"
+                    : daysLeft === 0 ? "text-orange-500"
+                    : daysLeft <= 3 ? "text-amber-600"
+                    : "text-gray-400"
                   }`}>
                     {daysLeft < 0
                       ? `${Math.abs(daysLeft)}d overdue`
@@ -163,9 +214,11 @@ export default function InstallmentSchedule({ installments, onTogglePaid, readon
                 )}
               </div>
 
-              {/* Breakdown */}
+              {/* Amount breakdown */}
               <div className="text-right flex-shrink-0">
-                <p className={`text-sm font-semibold ${isPaid ? "text-gray-400" : "text-gray-900"}`}>
+                <p className={`text-sm font-semibold ${
+                  isPaid ? "text-gray-400" : isFrac ? "text-purple-700" : "text-gray-900"
+                }`}>
                   {formatCurrency(inst.totalAmount)}
                 </p>
                 <p className="text-xs text-gray-400">
