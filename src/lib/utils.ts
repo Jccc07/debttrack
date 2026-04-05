@@ -71,7 +71,6 @@ export function computeInstallments(
   const totalPeriods = wholeMonths + (fraction > 0 ? 1 : 0);
   const principalPerMonth = round2(principal / months);
 
-  // Use day-based intervals if intervalDays !== 30, otherwise use month-based
   const useDayInterval = intervalDays !== 30;
 
   if (method === "FLAT") {
@@ -173,13 +172,20 @@ export function computePenaltyPreview(
   const daysAfterGrace = daysOverdue - graceDays;
   if (daysAfterGrace <= 0) return null;
 
+  // Occurrences: always at least 1 once past the grace period.
+  // For WEEKLY/MONTHLY we use Math.max(1, floor) so the first partial
+  // period still counts as one occurrence.
   let occurrences: number;
-  if (frequency === "ONCE")         occurrences = 1;
-  else if (frequency === "DAILY")   occurrences = daysAfterGrace;
-  else if (frequency === "WEEKLY")  occurrences = Math.floor(daysAfterGrace / 7);
-  else /* MONTHLY */                occurrences = Math.floor(daysAfterGrace / 30);
-
-  if (occurrences < 1) return null;
+  if (frequency === "ONCE") {
+    occurrences = 1;
+  } else if (frequency === "DAILY") {
+    occurrences = daysAfterGrace; // 1 per day, naturally ≥ 1
+  } else if (frequency === "WEEKLY") {
+    occurrences = Math.max(1, Math.floor(daysAfterGrace / 7));
+  } else {
+    // MONTHLY
+    occurrences = Math.max(1, Math.floor(daysAfterGrace / 30));
+  }
 
   const perOccurrence = penaltyType === "PERCENT"
     ? round2(baseAmount * (penaltyAmount / 100))
