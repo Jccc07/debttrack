@@ -46,7 +46,6 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function SharePage() {
-  // useParams is the safe way to read route params in client components
   const params = useParams();
   const token = Array.isArray(params.token) ? params.token[0] : params.token;
 
@@ -114,6 +113,14 @@ export default function SharePage() {
   const daysUntilExpiry = expiresAt
     ? Math.ceil((expiresAt.getTime() - Date.now()) / 86400000)
     : null;
+
+  // Per-occurrence peso value for rule summary
+  const penaltyPerOccurrence =
+    data.penaltyEnabled && data.penaltyAmount
+      ? data.penaltyType === "PERCENT"
+        ? Number(data.endAmount) * Number(data.penaltyAmount) / 100
+        : Number(data.penaltyAmount)
+      : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -246,17 +253,18 @@ export default function SharePage() {
               </div>
             )}
 
-            {/* Penalty rule */}
-            {data.penaltyEnabled && (
-              <div className="bg-orange-50 rounded-xl px-4 py-3 border border-orange-100">
-                <p className="text-xs font-semibold text-orange-700 uppercase tracking-wider mb-1">Penalty rule</p>
+            {/* ── Penalty rule summary — matches TransactionForm "Rule summary" style ── */}
+            {data.penaltyEnabled && penaltyPerOccurrence !== null && (
+              <div className="bg-orange-50 rounded-xl px-4 py-3 border border-orange-100 space-y-1.5">
+                <p className="text-xs font-semibold text-orange-700">Rule summary</p>
                 <p className="text-xs text-orange-600">
-                  After <span className="font-semibold">{data.penaltyGraceDays} day{data.penaltyGraceDays !== 1 ? "s" : ""}</span> overdue,
-                  charge{" "}
+                  After{" "}
+                  <span className="font-semibold">{data.penaltyGraceDays} day{data.penaltyGraceDays !== 1 ? "s" : ""}</span>{" "}
+                  overdue, charge{" "}
                   <span className="font-semibold">
                     {data.penaltyType === "PERCENT"
-                      ? `${data.penaltyAmount}% of balance`
-                      : `₱${Number(data.penaltyAmount).toFixed(2)}`}
+                      ? `${data.penaltyAmount}% = ${formatCurrency(penaltyPerOccurrence)}`
+                      : formatCurrency(penaltyPerOccurrence)}
                   </span>{" "}
                   {data.penaltyFrequency === "ONCE" ? "(one-time)" : `every ${data.penaltyFrequency?.toLowerCase()}`}.
                 </p>

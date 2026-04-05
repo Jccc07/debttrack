@@ -6,7 +6,6 @@ import { formatCurrency, formatDate, getDaysUntilDue, computePenaltyPreview } fr
 import TransactionForm from "./TransactionForm";
 import DeleteConfirmModal from "./DeleteConfirmModal";
 import InstallmentSchedule from "./InstallmentSchedule";
-import ShareModal from "./ShareModal";
 
 interface Props {
   transaction: Transaction;
@@ -34,12 +33,12 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const [marking, setMarking] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [showShare, setShowShare] = useState(false);
 
   const daysLeft = getDaysUntilDue(tx.dueDate);
   const interest = Number(tx.endAmount) - Number(tx.amount);
   const isPayAtEnd = tx.isInstallment && tx.payAtEnd;
 
+  // ── Live penalty computation ──
   function computeLivePenalty(baseAmount: number, dueDate: Date | string) {
     if (
       !tx.penaltyEnabled ||
@@ -47,13 +46,9 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
       !tx.penaltyType || !tx.penaltyAmount || !tx.penaltyFrequency
     ) return null;
     return computePenaltyPreview(
-      baseAmount,
-      dueDate,
-      tx.penaltyGraceDays,
-      tx.penaltyType,
-      Number(tx.penaltyAmount),
-      tx.penaltyFrequency,
-      0
+      baseAmount, dueDate,
+      tx.penaltyGraceDays, tx.penaltyType,
+      Number(tx.penaltyAmount), tx.penaltyFrequency, 0
     );
   }
 
@@ -65,6 +60,14 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const penaltyAmount = livePenalty?.amount ?? 0;
   const totalNowDue = Number(tx.endAmount) + penaltyAmount;
   const showTotalDue = tx.status !== "PAID" && penaltyAmount > 0;
+
+  // Per-occurrence peso value for rule summary
+  const penaltyPerOccurrence =
+    tx.penaltyEnabled && tx.penaltyAmount
+      ? tx.penaltyType === "PERCENT"
+        ? Number(tx.endAmount) * Number(tx.penaltyAmount) / 100
+        : Number(tx.penaltyAmount)
+      : null;
 
   async function refreshTx() {
     const res = await fetch(`/api/transactions/${tx.id}`);
@@ -192,7 +195,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
             </div>
 
-            {/* Total now due with penalty */}
+            {/* Total now due */}
             {showTotalDue && (
               <div className="rounded-xl border border-orange-200 bg-orange-50 overflow-hidden">
                 <div className="px-4 py-3 flex items-center justify-between">
@@ -214,8 +217,8 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                     </div>
                     <p className="text-orange-400 mt-0.5 leading-relaxed">
                       {tx.penaltyType === "PERCENT"
-                        ? `${tx.penaltyAmount}% of ₱${Number(tx.endAmount).toFixed(2)}`
-                        : `₱${Number(tx.penaltyAmount).toFixed(2)} flat`}
+                        ? `${tx.penaltyAmount}% of ${formatCurrency(tx.endAmount)}`
+                        : `${formatCurrency(Number(tx.penaltyAmount))} flat`}
                       {" "}× {livePenalty!.occurrences} {tx.penaltyFrequency?.toLowerCase()} occurrence{livePenalty!.occurrences !== 1 ? "s" : ""}
                       {" "}({livePenalty!.daysOverdue}d overdue, {tx.penaltyGraceDays}d grace period)
                     </p>
@@ -228,27 +231,26 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
             )}
 
-            {/* Penalty rule summary */}
+            {/* ── Penalty rule summary — matches TransactionForm "Rule summary" style ── */}
             {tx.penaltyEnabled && (
-              <div className="rounded-xl px-4 py-3 border bg-orange-50 border-orange-100">
-                <p className="text-xs font-semibold text-orange-700 uppercase tracking-wider mb-1">Penalty rule active</p>
+              <div className="rounded-xl px-4 py-3 border bg-orange-50 border-orange-100 space-y-1.5">
+                <p className="text-xs font-semibold text-orange-700">Rule summary</p>
                 <p className="text-xs text-orange-600">
-                  After <span className="font-semibold">{tx.penaltyGraceDays} day{tx.penaltyGraceDays !== 1 ? "s" : ""}</span> overdue,
-                  charge{" "}
+                  After{" "}
+                  <span className="font-semibold">{tx.penaltyGraceDays} day{tx.penaltyGraceDays !== 1 ? "s" : ""}</span>{" "}
+                  overdue, charge{" "}
                   <span className="font-semibold">
                     {tx.penaltyType === "PERCENT"
-                      ? `${tx.penaltyAmount}% of balance`
-                      : `₱${Number(tx.penaltyAmount).toFixed(2)}`}
+                      ? `${tx.penaltyAmount}% = ${formatCurrency(penaltyPerOccurrence!)}`
+                      : formatCurrency(Number(tx.penaltyAmount))}
                   </span>{" "}
                   {tx.penaltyFrequency === "ONCE" ? "(one-time)" : `every ${tx.penaltyFrequency?.toLowerCase()}`}.
                 </p>
                 {!showTotalDue && tx.status !== "PAID" && (
-                  <p className="text-xs text-orange-400 mt-1">
+                  <p className="text-xs text-orange-400">
                     {daysLeft !== null && daysLeft > 0
-                      ? `Penalty will apply ${tx.penaltyGraceDays} day${tx.penaltyGraceDays !== 1 ? "s" : ""} after the due date.`
-                      : daysLeft !== null && daysLeft <= 0
-                      ? "Within grace period — penalty not yet active."
-                      : ""}
+                      ? `Penalty applies after due date + ${tx.penaltyGraceDays} day${tx.penaltyGraceDays !== 1 ? "s" : ""} grace period.`
+                      : "Within grace period — penalty not yet active."}
                   </p>
                 )}
               </div>
@@ -329,18 +331,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               Edit
             </button>
             <button
-              onClick={() => setShowShare(true)}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1.5"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="11" cy="3" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-                <circle cx="3" cy="7" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-                <circle cx="11" cy="11" r="1.5" stroke="currentColor" strokeWidth="1.3"/>
-                <path d="M4.5 6.2l5-2.5M4.5 7.8l5 2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-              Share
-            </button>
-            <button
               onClick={() => setShowDelete(true)}
               className="px-4 py-2.5 rounded-xl border border-red-100 text-sm font-medium text-red-500 hover:bg-red-50 transition-colors"
             >
@@ -356,14 +346,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
           loading={deleting}
           onConfirm={handleDelete}
           onCancel={() => setShowDelete(false)}
-        />
-      )}
-
-      {showShare && (
-        <ShareModal
-          transaction={tx}
-          onClose={() => setShowShare(false)}
-          onUpdated={(updated) => { setTx(updated); onUpdated(updated); }}
         />
       )}
     </>
