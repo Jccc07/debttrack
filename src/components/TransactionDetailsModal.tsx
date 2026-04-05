@@ -1,6 +1,6 @@
 "use client";
 // src/components/TransactionDetailsModal.tsx
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Transaction, Installment, PenaltyPreview } from "@/types";
 import { formatCurrency, formatDate, getDaysUntilDue, computePenaltyPreview } from "@/lib/utils";
 import TransactionForm from "./TransactionForm";
@@ -45,7 +45,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const interest = Number(tx.endAmount) - Number(tx.amount);
   const isPayAtEnd = tx.isInstallment && tx.payAtEnd;
 
-  // Total penalties applied at transaction level (not installment-specific)
+  // Transaction-level penalties (already applied/confirmed)
   const txLevelPenalties = (tx.penalties ?? []).filter((p) => !p.installmentId);
   const totalPenaltiesApplied = txLevelPenalties.reduce((sum, p) => sum + Number(p.amount), 0);
   const grandTotal = Number(tx.endAmount) + totalPenaltiesApplied;
@@ -98,7 +98,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
     dueDate: Date | string,
     alreadyApplied: number
   ): PenaltyPreview | null {
-    // Fix: correct null check
     if (
       !tx.penaltyEnabled ||
       tx.penaltyGraceDays === null ||
@@ -165,29 +164,31 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
     await refreshTx();
   }
 
-  // Can apply penalty button show?
+  // Pending (accrued but not yet applied) penalty previews
+  const pendingTxPenalty =
+    tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && !tx.isInstallment
+      ? buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied)
+      : null;
+
+  const pendingPayAtEndPenalty =
+    tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && isPayAtEnd
+      ? buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied)
+      : null;
+
+  const activePendingPenalty = pendingTxPenalty ?? pendingPayAtEndPenalty ?? null;
+
+  // Can the "Apply penalty" button be shown?
   const canApplyTxPenalty =
-    tx.penaltyEnabled &&
-    tx.dueDate &&
-    tx.status !== "PAID" &&
-    !tx.isInstallment &&
-    buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied) !== null;
+    tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && !tx.isInstallment && pendingTxPenalty !== null;
 
   const canApplyPayAtEndPenalty =
-    tx.penaltyEnabled &&
-    tx.dueDate &&
-    tx.status !== "PAID" &&
-    isPayAtEnd &&
-    buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied) !== null;
+    tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && isPayAtEnd && pendingPayAtEndPenalty !== null;
 
-  // Compute pending penalty preview for display (without applying)
-  const pendingTxPenalty = tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && !tx.isInstallment
-    ? buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied)
-    : null;
-
-  const pendingPayAtEndPenalty = tx.penaltyEnabled && tx.dueDate && tx.status !== "PAID" && isPayAtEnd
-    ? buildPenaltyPreview(Number(tx.endAmount), tx.dueDate, totalPenaltiesApplied)
-    : null;
+  // ── Projected total: subtotal + applied penalties + pending (accrued) penalty ──
+  const pendingPenaltyAmount = activePendingPenalty?.amount ?? 0;
+  const projectedTotal = grandTotal + pendingPenaltyAmount;
+  // Only show the projected total row when there is something extra to show
+  const showProjectedTotal = tx.status !== "PAID" && projectedTotal > Number(tx.endAmount);
 
   if (editing) {
     return (
@@ -274,7 +275,47 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
             </div>
 
-            {/* Penalty rule info box — always show when enabled */}
+            {/* ── NEW: Amount now due — shown whenever there's penalties applied or accruing ── */}
+            {showProjectedTotal && (
+              <div className="rounded-xl border border-orange-200 bg-orange-50 overflow-hidden">
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-orange-700 uppercase tracking-wider">
+                      Amount now due
+                    </p>
+                    <p className="text-xs text-orange-500 mt-0.5">Subtotal + penalties</p>
+                  </div>
+                  <p className="text-xl font-bold text-orange-700">{formatCurrency(projectedTotal)}</p>
+                </div>
+
+                {/* Breakdown rows */}
+                <div className="border-t border-orange-100 divide-y divide-orange-100 text-xs">
+                  <div className="px-4 py-2 flex justify-between text-orange-600">
+                    <span>Subtotal</span>
+                    <span className="font-medium">{formatCurrency(tx.endAmount)}</span>
+                  </div>
+
+                  {totalPenaltiesApplied > 0 && (
+                    <div className="px-4 py-2 flex justify-between text-orange-600">
+                      <span>Penalties applied</span>
+                      <span className="font-medium">+{formatCurrency(totalPenaltiesApplied)}</span>
+                    </div>
+                  )}
+
+                  {pendingPenaltyAmount > 0 && (
+                    <div className="px-4 py-2 flex justify-between text-orange-600">
+                      <span>
+                        Accrued penalty
+                        <span className="ml-1 text-orange-400">(not yet applied)</span>
+                      </span>
+                      <span className="font-medium">+{formatCurrency(pendingPenaltyAmount)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Penalty rule info box */}
             {tx.penaltyEnabled && (
               <div className="bg-orange-50 rounded-xl px-4 py-3 border border-orange-100">
                 <div className="flex items-start justify-between gap-2">
@@ -293,22 +334,22 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                   </div>
                 </div>
 
-                {/* Pending penalty preview */}
-                {(pendingTxPenalty || pendingPayAtEndPenalty) && (
+                {/* Pending penalty note inside the rule box */}
+                {activePendingPenalty && (
                   <div className="mt-2 pt-2 border-t border-orange-100">
                     <p className="text-xs text-orange-700">
                       <span className="font-semibold">Penalty now due:</span>{" "}
                       <span className="font-bold text-orange-800">
-                        +{formatCurrency((pendingTxPenalty ?? pendingPayAtEndPenalty)!.amount)}
+                        +{formatCurrency(activePendingPenalty.amount)}
                       </span>
-                      {" "}— {(pendingTxPenalty ?? pendingPayAtEndPenalty)!.note}
+                      {" "}— {activePendingPenalty.note}
                     </p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Penalties applied (transaction-level) */}
+            {/* Penalties already applied (transaction-level) */}
             {txLevelPenalties.length > 0 && (
               <div className="bg-orange-50 rounded-xl p-3 border border-orange-100">
                 <p className="text-xs font-medium text-orange-700 uppercase tracking-wider mb-2">Penalties applied</p>
@@ -337,15 +378,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
             )}
 
-            {/* Grand total with penalties */}
-            {totalPenaltiesApplied > 0 && (
-              <div className="flex items-center justify-between bg-orange-50 rounded-xl px-4 py-3 border border-orange-100">
-                <span className="text-sm font-semibold text-orange-800">Grand total (with penalties)</span>
-                <span className="text-base font-bold text-orange-800">{formatCurrency(grandTotal)}</span>
-              </div>
-            )}
-
-            {/* Apply penalty button (non-installment / payAtEnd) */}
+            {/* Apply penalty button */}
             {(canApplyTxPenalty || canApplyPayAtEndPenalty) && (
               <button
                 onClick={openPenaltyForTransaction}
@@ -355,7 +388,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                   <path d="M7 2v4M7 9.5v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                   <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
                 </svg>
-                Apply penalty (+{formatCurrency((pendingTxPenalty ?? pendingPayAtEndPenalty)!.amount)})
+                Apply penalty (+{formatCurrency(activePendingPenalty!.amount)})
               </button>
             )}
 
