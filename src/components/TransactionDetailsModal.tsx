@@ -137,6 +137,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                   monthsFloat={tx.installmentMonths ?? undefined}
                   installments={tx.installments}
                   onTogglePaid={handleInstallmentToggle}
+                  payAtEnd={tx.payAtEnd}
                 />
               </div>
             ) : (

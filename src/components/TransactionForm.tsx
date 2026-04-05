@@ -13,7 +13,7 @@ interface TransactionFormProps {
 const today = new Date().toISOString().split("T")[0];
 
 // Allowed month steps shown in the dropdown suggestions
-const MONTH_PRESETS = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 9, 12, 18, 24];
+const MONTH_PRESETS = [0.5, 1, 2, 4, 6, 12, 24];
 
 export default function TransactionForm({ onClose, onSaved, initial }: TransactionFormProps) {
   const isEdit = !!initial?.id;
