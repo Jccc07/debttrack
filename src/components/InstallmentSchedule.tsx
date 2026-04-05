@@ -8,27 +8,72 @@ interface InstallmentScheduleProps {
   installments: Installment[];
   onTogglePaid: (installmentId: string, currentStatus: string) => Promise<void>;
   readonly?: boolean;
+  payAtEnd?: boolean;
 }
 
-export default function InstallmentSchedule({ installments, onTogglePaid, readonly }: InstallmentScheduleProps) {
+export default function InstallmentSchedule({ installments, onTogglePaid, readonly, payAtEnd }: InstallmentScheduleProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const paidCount = installments.filter((i) => i.status === "PAID").length;
   const totalCount = installments.length;
-  const paidAmount = installments
-    .filter((i) => i.status === "PAID")
-    .reduce((sum, i) => sum + Number(i.totalAmount), 0);
   const remainingAmount = installments
     .filter((i) => i.status !== "PAID")
     .reduce((sum, i) => sum + Number(i.totalAmount), 0);
+  const totalAmount = installments.reduce((sum, i) => sum + Number(i.totalAmount), 0);
 
   async function handleToggle(inst: Installment) {
-    if (readonly) return;
+    if (readonly || payAtEnd) return;
     setTogglingId(inst.id);
     await onTogglePaid(inst.id, inst.status);
     setTogglingId(null);
   }
 
+  // For payAtEnd — show a simple schedule reference with no checkboxes
+  if (payAtEnd) {
+    const lastInstallment = installments[installments.length - 1];
+    return (
+      <div className="space-y-3">
+        {/* Single due date banner */}
+        <div className="bg-purple-50 rounded-xl px-4 py-3 border border-purple-100">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium text-purple-700 uppercase tracking-wider">Single payment due</p>
+              <p className="text-base font-bold text-purple-900 mt-0.5">{formatDate(lastInstallment.dueDate)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-purple-600">Full amount</p>
+              <p className="text-base font-bold text-purple-900">{formatCurrency(totalAmount)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly breakdown — read only reference */}
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Monthly breakdown (reference)</p>
+          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+            <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
+              {installments.map((inst) => (
+                <div key={inst.id} className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="flex-shrink-0 w-14">
+                    <span className="text-xs font-semibold text-gray-500">Month {inst.monthNumber}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-600">{formatDate(inst.dueDate)}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(inst.totalAmount)}</p>
+                    <p className="text-xs text-gray-400">{formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular installment schedule with checkboxes
   return (
     <div className="space-y-3">
       {/* Progress summary */}

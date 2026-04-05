@@ -39,6 +39,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       : Number(existing.interestRate);
     const newMethod = body.installmentMethod ?? existing.installmentMethod;
     const newAmount = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
+    const newPayAtEnd = body.payAtEnd !== undefined ? body.payAtEnd : existing.payAtEnd;
     const txDate = body.transactionDate
       ? new Date(body.transactionDate)
       : new Date(existing.transactionDate);
@@ -52,7 +53,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const newDueDate = installmentRows[installmentRows.length - 1].dueDate;
 
     const updated = await prisma.$transaction(async (tx) => {
-      // Delete old unpaid installments and recreate all
+      // Delete all installments and recreate with new schedule
       await tx.installment.deleteMany({ where: { transactionId: id } });
 
       await tx.installment.createMany({
@@ -78,6 +79,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           interestRate: newRate,
           installmentMonths: newMonths,
           installmentMethod: newMethod,
+          payAtEnd: newPayAtEnd,
           endAmount: newEndAmount,
           dueDate: newDueDate,
           status: "UNPAID",

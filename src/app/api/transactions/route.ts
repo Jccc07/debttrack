@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
       type, amount, interestRate = 0, interestType = "PERCENT",
       counterparty, notes, transactionDate, dueDate,
       isInstallment = false, installmentMonths, installmentMethod,
+      payAtEnd = false,
     } = body;
 
     if (!type || !amount || !transactionDate) {
@@ -68,7 +69,6 @@ export async function POST(req: NextRequest) {
     let installmentRows: ReturnType<typeof computeInstallments> = [];
 
     if (isInstallment && installmentMonths && installmentMethod) {
-      // Installment transaction
       installmentRows = computeInstallments(
         Number(amount),
         Number(interestRate),
@@ -78,14 +78,13 @@ export async function POST(req: NextRequest) {
       );
       endAmount = installmentRows.reduce((sum, r) => sum + r.totalAmount, 0);
       endAmount = Math.round(endAmount * 100) / 100;
-      // Due date = last installment's due date
+      // Due date = last installment's due date (same for both modes)
       txDueDate = installmentRows[installmentRows.length - 1].dueDate;
     } else {
       endAmount = computeEndAmount(Number(amount), Number(interestRate), interestType);
       txDueDate = dueDate ? new Date(dueDate) : null;
     }
 
-    // Create transaction + installments in one DB transaction
     const transaction = await prisma.$transaction(async (tx) => {
       const created = await tx.transaction.create({
         data: {
@@ -103,6 +102,7 @@ export async function POST(req: NextRequest) {
           isInstallment,
           installmentMonths: isInstallment ? Number(installmentMonths) : null,
           installmentMethod: isInstallment ? installmentMethod : null,
+          payAtEnd: isInstallment ? payAtEnd : false,
         },
       });
 

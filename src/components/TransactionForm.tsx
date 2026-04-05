@@ -33,6 +33,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     isInstallment: initial?.isInstallment ?? false,
     installmentMonths: String(initial?.installmentMonths ?? "3"),
     installmentMethod: (initial?.installmentMethod ?? "FLAT") as InstallmentMethod,
+    payAtEnd: initial?.payAtEnd ?? false,
   });
 
   const [loading, setLoading] = useState(false);
@@ -80,14 +81,15 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       if (form.isInstallment) {
         payload.installmentMonths = parseInt(form.installmentMonths);
         payload.installmentMethod = form.installmentMethod;
+        payload.payAtEnd = form.payAtEnd;
       } else {
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
     } else {
       if (isExistingInstallment) {
-        // Allow updating installment months and method on edit
         payload.installmentMonths = parseInt(form.installmentMonths);
         payload.installmentMethod = form.installmentMethod;
+        payload.payAtEnd = form.payAtEnd;
       } else {
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
@@ -163,7 +165,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           </div>
 
-          {/* Installment toggle — disabled on edit if already installment */}
+          {/* Installment toggle */}
           <div>
             <div className={`flex items-center justify-between py-3 px-4 rounded-xl border ${
               isExistingInstallment ? "bg-purple-50/50 border-purple-100" : "bg-purple-50 border-purple-100"
@@ -179,7 +181,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               <button
                 type="button"
                 disabled={isExistingInstallment}
-                onClick={() => !isExistingInstallment && setForm({ ...form, isInstallment: !form.isInstallment })}
+                onClick={() => !isExistingInstallment && setForm({ ...form, isInstallment: !form.isInstallment, payAtEnd: false })}
                 className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
                   form.isInstallment ? "bg-purple-600" : "bg-gray-200"
                 } ${isExistingInstallment ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
@@ -191,7 +193,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           </div>
 
-          {/* Installment options — shown for new installments OR editing existing ones */}
+          {/* Installment options */}
           {form.isInstallment && (
             <div className="space-y-3 bg-purple-50/50 rounded-xl p-4 border border-purple-100">
               <div className="grid grid-cols-2 gap-3">
@@ -232,6 +234,25 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Pay at end toggle */}
+              <div className="flex items-center justify-between py-2.5 px-3 bg-white rounded-xl border border-purple-100">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Pay at end</p>
+                  <p className="text-xs text-gray-400 mt-0.5">One lump sum payment on the final due date</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, payAtEnd: !form.payAtEnd })}
+                  className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                    form.payAtEnd ? "bg-purple-600" : "bg-gray-200"
+                  }`}
+                >
+                  <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                    form.payAtEnd ? "translate-x-6" : "translate-x-1"
+                  }`} />
+                </button>
               </div>
 
               {/* Schedule preview */}
@@ -279,10 +300,23 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 </div>
               )}
 
+              {/* Pay at end info */}
+              {form.payAtEnd && installmentSchedule.length > 0 && (
+                <div className="bg-purple-100/60 rounded-xl px-3 py-2.5">
+                  <p className="text-xs text-purple-800">
+                    <span className="font-semibold">Single due date:</span>{" "}
+                    {new Date(installmentSchedule[installmentSchedule.length - 1].dueDate)
+                      .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.
+                    Full amount of <span className="font-semibold">{formatCurrency(installmentTotal)}</span> due then.
+                    You'll be notified once when it's approaching.
+                  </p>
+                </div>
+              )}
+
               {isExistingInstallment && (
                 <div className="bg-amber-50 rounded-xl px-3 py-2.5 border border-amber-100">
                   <p className="text-xs text-amber-700">
-                    <span className="font-semibold">Note:</span> Changing months or rate will update the payment schedule. Already paid installments won't be affected.
+                    <span className="font-semibold">Note:</span> Changing months or rate will reset the payment schedule.
                   </p>
                 </div>
               )}
@@ -359,13 +393,11 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
           )}
 
           {/* Installment due date info */}
-          {form.isInstallment && !isExistingInstallment && (
+          {form.isInstallment && !isExistingInstallment && !form.payAtEnd && installmentSchedule.length > 0 && (
             <div className="bg-purple-50 rounded-xl px-4 py-3">
               <p className="text-xs text-purple-700">
                 <span className="font-semibold">Due dates</span> are auto-calculated monthly from the transaction date.
-                First payment due {installmentSchedule[0]
-                  ? new Date(installmentSchedule[0].dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                  : "—"}.
+                First payment due {new Date(installmentSchedule[0].dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
               </p>
             </div>
           )}

@@ -75,6 +75,7 @@ model Transaction {
   isInstallment      Boolean     @default(false)
   installmentMonths  Int?
   installmentMethod  String?     // "FLAT" | "REDUCING"
+  payAtEnd           Boolean     @default(false)
   installments       Installment[]
   notifications      Notification[]
   createdAt       DateTime      @default(now())

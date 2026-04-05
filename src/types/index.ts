@@ -37,6 +37,7 @@ export interface Transaction {
   isInstallment: boolean;
   installmentMonths: number | null;
   installmentMethod: InstallmentMethod | null;
+  payAtEnd: boolean;
   installments?: Installment[];
   createdAt: string | Date;
   updatedAt: string | Date;

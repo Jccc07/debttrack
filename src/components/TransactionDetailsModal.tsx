@@ -41,7 +41,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   }
 
   async function togglePaid() {
-    if (tx.isInstallment) return;
     setMarking(true);
     const newStatus = tx.status === "PAID" ? "UNPAID" : "PAID";
     const res = await fetch(`/api/transactions/${tx.id}`, {
@@ -62,7 +61,6 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
       body: JSON.stringify({ status: currentStatus === "PAID" ? "UNPAID" : "PAID" }),
     });
     if (!res.ok) return;
-    // Refresh the full transaction including updated installments
     await refreshTx();
   }
 
@@ -80,6 +78,9 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
     );
   }
 
+  // payAtEnd installments use a single mark paid/unpaid like regular transactions
+  const isPayAtEnd = tx.isInstallment && tx.payAtEnd;
+
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
@@ -94,11 +95,16 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
               </div>
               <div>
                 <p className="text-base font-semibold text-gray-900">{tx.counterparty ?? "Unknown"}</p>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <p className="text-xs text-gray-400">{tx.type === "LEND" ? "Lent" : "Borrowed"} · {formatDate(tx.transactionDate)}</p>
                   {tx.isInstallment && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">
                       {tx.installmentMonths}× installment
+                    </span>
+                  )}
+                  {isPayAtEnd && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-xs font-medium">
+                      Pay at end
                     </span>
                   )}
                 </div>
@@ -142,6 +148,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
                 <InstallmentSchedule
                   installments={tx.installments}
                   onTogglePaid={handleInstallmentToggle}
+                  payAtEnd={tx.payAtEnd}
                 />
               </div>
             ) : (
@@ -177,7 +184,8 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
 
           {/* Actions */}
           <div className="px-6 pb-5 pt-3 flex gap-2 border-t border-gray-50 flex-shrink-0">
-            {!tx.isInstallment && (
+            {/* Show mark paid for non-installment OR payAtEnd installments */}
+            {(!tx.isInstallment || isPayAtEnd) && (
               <button onClick={togglePaid} disabled={marking}
                 className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
                   tx.status === "PAID" ? "border border-gray-200 text-gray-600 hover:bg-gray-50" : "bg-green-600 hover:bg-green-700 text-white"}`}>
