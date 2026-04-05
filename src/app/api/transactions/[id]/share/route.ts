@@ -14,17 +14,21 @@ export async function POST(
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  const days = Number(body.days) || 7;
+  // days: null means no expiry
+  const days = body.days === null ? null : Number(body.days) || 7;
 
   const tx = await prisma.transaction.findFirst({
     where: { id, userId: session.user.id },
   });
   if (!tx) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Generate a secure random token
   const token = randomBytes(32).toString("hex");
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + days);
+
+  let expiresAt: Date | null = null;
+  if (days !== null) {
+    expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + days);
+  }
 
   const updated = await prisma.transaction.update({
     where: { id },

@@ -15,13 +15,14 @@ const EXPIRY_OPTIONS = [
   { label: "3 days", days: 3 },
   { label: "7 days", days: 7 },
   { label: "30 days", days: 30 },
+  { label: "No expiry", days: null },
 ];
 
 export default function ShareModal({ transaction: tx, onClose, onUpdated }: Props) {
   const [generating, setGenerating] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [selectedDays, setSelectedDays] = useState(7);
+  const [selectedDays, setSelectedDays] = useState<number | null>(null); // default: no expiry
   const [shareUrl, setShareUrl] = useState<string | null>(
     tx.shareToken ? `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/share/${tx.shareToken}` : null
   );
@@ -41,8 +42,8 @@ export default function ShareModal({ transaction: tx, onClose, onUpdated }: Prop
     if (res.ok) {
       const data = await res.json();
       setShareUrl(data.shareUrl);
-      setExpiresAt(data.shareExpiresAt);
-      onUpdated({ ...tx, shareToken: data.shareToken, shareExpiresAt: data.shareExpiresAt });
+      setExpiresAt(data.shareExpiresAt ?? null);
+      onUpdated({ ...tx, shareToken: data.shareToken, shareExpiresAt: data.shareExpiresAt ?? null });
     }
     setGenerating(false);
   }
@@ -123,15 +124,15 @@ export default function ShareModal({ transaction: tx, onClose, onUpdated }: Prop
                     {copied ? "Copied!" : "Copy"}
                   </button>
                 </div>
-                {expiresAt && (
-                  <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.1"/>
-                      <path d="M5.5 3v2.5L7 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
-                    </svg>
-                    Expires {formatDate(expiresAt)}
-                  </p>
-                )}
+                <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                    <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.1"/>
+                    <path d="M5.5 3v2.5L7 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                  </svg>
+                  {expiresAt
+                    ? `Expires ${formatDate(expiresAt)}`
+                    : "No expiry — link stays active until revoked"}
+                </p>
               </div>
 
               {/* Share buttons */}
@@ -192,10 +193,10 @@ export default function ShareModal({ transaction: tx, onClose, onUpdated }: Prop
               {/* Expiry selector */}
               <div>
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Link expires after</p>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {EXPIRY_OPTIONS.map((opt) => (
                     <button
-                      key={opt.days}
+                      key={String(opt.days)}
                       type="button"
                       onClick={() => setSelectedDays(opt.days)}
                       className={`py-2 px-1 rounded-xl text-xs font-semibold border transition-all text-center ${
@@ -208,6 +209,15 @@ export default function ShareModal({ transaction: tx, onClose, onUpdated }: Prop
                     </button>
                   ))}
                 </div>
+                {selectedDays === null && (
+                  <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <circle cx="5.5" cy="5.5" r="4.5" stroke="currentColor" strokeWidth="1.1"/>
+                      <path d="M5.5 3v1.5M5.5 6v.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+                    </svg>
+                    Link stays active until you manually revoke it
+                  </p>
+                )}
               </div>
 
               <button
