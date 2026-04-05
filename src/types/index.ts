@@ -1,5 +1,4 @@
 // src/types/index.ts
-
 export type TransactionType = "LEND" | "OWE";
 export type TransactionStatus = "UNPAID" | "PAID" | "OVERDUE";
 export type InterestType = "PERCENT" | "FLAT";
@@ -41,7 +40,6 @@ export interface Transaction {
   interestType: InterestType;
   endAmount: number | string;
   counterparty: string | null;
-  counterpartyEmail: string | null;
   notes: string | null;
   transactionDate: string | Date;
   dueDate: string | Date | null;
@@ -61,6 +59,9 @@ export interface Transaction {
   penaltyAmount: number | string | null;
   penaltyFrequency: PenaltyFrequency | null;
   penalties?: Penalty[];
+  // Share
+  shareToken: string | null;
+  shareExpiresAt: string | Date | null;
   createdAt: string | Date;
   updatedAt: string | Date;
 }
@@ -95,7 +96,6 @@ export interface InstallmentScheduleRow {
   remainingBalance: number;
 }
 
-// Penalty calculation result (frontend, before confirming)
 export interface PenaltyPreview {
   amount: number;
   occurrences: number;

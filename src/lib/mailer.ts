@@ -1,11 +1,7 @@
 // src/lib/mailer.ts
 import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
-/**
- * Create a fresh transporter on every call.
- * DO NOT create it at module level — on Vercel serverless,
- * env vars may not be populated at cold-start module init time.
- */
 function createTransporter() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
@@ -14,19 +10,18 @@ function createTransporter() {
     throw new Error(`Gmail credentials missing. GMAIL_USER=${!!user} GMAIL_APP_PASSWORD=${!!pass}`);
   }
 
-  return nodemailer.createTransport({
+  const options: SMTPTransport.Options = {
     host: "smtp.gmail.com",
     port: 465,
-    secure: true,          // SSL — more reliable than STARTTLS on serverless
+    secure: true,
     auth: { user, pass },
-    pool: false,           // no connection pooling on serverless
-    socketTimeout: 10000,  // 10s — well within Vercel's 30s function limit
-    greetingTimeout: 10000,
     connectionTimeout: 10000,
-  });
+    greetingTimeout: 10000,
+  };
+
+  return nodemailer.createTransport(options);
 }
 
-/** Verify SMTP credentials — call from /api/test-email */
 export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
   try {
     const t = createTransporter();
@@ -39,7 +34,7 @@ export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
 
 interface SendReminderParams {
   to: string;
-  cc?: string;       // counterparty email (optional)
+  cc?: string;
   name: string;
   counterparty: string;
   dueDate: Date;
