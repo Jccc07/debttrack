@@ -15,17 +15,10 @@ interface InstallmentScheduleProps {
   onApplyPenalty?: (inst: Installment) => void;
 }
 
-/**
- * Returns the row label for a given period index.
- * - Whole-month periods: "Month 1", "Month 2", etc.
- * - Fractional last period: "Half month", "Quarter month", etc.
- */
 function periodLabel(index: number, total: number, monthsFloat: number): string {
   const wholeMonths = Math.floor(monthsFloat);
   const fraction    = Math.round((monthsFloat - wholeMonths) * 100) / 100;
   const hasFraction = fraction > 0;
-
-  // This is the fractional period
   if (hasFraction && index === total) {
     return fractionLabel(fraction);
   }
@@ -43,18 +36,17 @@ export default function InstallmentSchedule({
 }: InstallmentScheduleProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const totalCount    = installments.length;
-  const paidCount     = installments.filter((i) => i.status === "PAID").length;
-  const totalAmount   = installments.reduce((sum, i) => sum + Number(i.totalAmount), 0);
+  const totalCount      = installments.length;
+  const paidCount       = installments.filter((i) => i.status === "PAID").length;
+  const totalAmount     = installments.reduce((sum, i) => sum + Number(i.totalAmount), 0);
   const remainingAmount = installments
     .filter((i) => i.status !== "PAID")
     .reduce((sum, i) => sum + Number(i.totalAmount), 0);
 
-  // Detect fractional setup from monthsFloat prop
-  const resolvedMonths  = monthsFloat ?? totalCount;
-  const wholeMonths     = Math.floor(resolvedMonths);
-  const fraction        = Math.round((resolvedMonths - wholeMonths) * 100) / 100;
-  const hasFraction     = fraction > 0;
+  const resolvedMonths = monthsFloat ?? totalCount;
+  const wholeMonths    = Math.floor(resolvedMonths);
+  const fraction       = Math.round((resolvedMonths - wholeMonths) * 100) / 100;
+  const hasFraction    = fraction > 0;
 
   async function handleToggle(inst: Installment) {
     if (readonly || payAtEnd) return;
@@ -63,7 +55,7 @@ export default function InstallmentSchedule({
     setTogglingId(null);
   }
 
-  // ── payAtEnd mode — read-only reference schedule + single due date banner ──
+  // ── payAtEnd mode ──
   if (payAtEnd) {
     const lastInstallment = installments[installments.length - 1];
     return (
@@ -88,9 +80,9 @@ export default function InstallmentSchedule({
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
             <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
               {installments.map((inst, idx) => {
-                const label   = periodLabel(idx + 1, totalCount, resolvedMonths);
-                const isLast  = idx === totalCount - 1;
-                const isFrac  = isLast && hasFraction;
+                const label  = periodLabel(idx + 1, totalCount, resolvedMonths);
+                const isLast = idx === totalCount - 1;
+                const isFrac = isLast && hasFraction;
                 return (
                   <div key={inst.id} className={`flex items-center gap-3 px-3 py-2.5 ${isFrac ? "bg-purple-50/40" : ""}`}>
                     <div className="flex-shrink-0 w-24">
@@ -148,103 +140,104 @@ export default function InstallmentSchedule({
           const label     = periodLabel(idx + 1, totalCount, resolvedMonths);
 
           return (
-            <div
-              key={inst.id}
-              className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
-                isPaid    ? "bg-green-50/50 border-green-100"
-                : isOverdue ? "bg-red-50/50 border-red-100"
-                : isFrac  ? "bg-purple-50/30 border-purple-100"
-                :             "bg-gray-50 border-gray-100"
-              }`}
-            >
-              {/* Checkbox */}
-              {!readonly && (
+            <div key={inst.id}>
+              <div
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                  isPaid      ? "bg-green-50/50 border-green-100"
+                  : isOverdue ? "bg-red-50/50 border-red-100"
+                  : isFrac    ? "bg-purple-50/30 border-purple-100"
+                  :             "bg-gray-50 border-gray-100"
+                }`}
+              >
+                {/* Checkbox */}
+                {!readonly && (
+                  <button
+                    onClick={() => handleToggle(inst)}
+                    disabled={toggling}
+                    className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      isPaid      ? "bg-green-500 border-green-500"
+                      : isOverdue ? "border-red-400 hover:border-red-500"
+                      :             "border-gray-300 hover:border-green-400"
+                    }`}
+                    title={isPaid ? "Mark as unpaid" : "Mark as paid"}
+                  >
+                    {toggling ? (
+                      <span className="w-3 h-3 border border-current border-t-transparent rounded-full spinner inline-block" />
+                    ) : isPaid ? (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M1.5 5l2.5 2.5L8.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    ) : null}
+                  </button>
+                )}
+
+                {/* Label */}
+                <div className="flex-shrink-0 w-24">
+                  <span className={`text-xs font-semibold ${
+                    isPaid      ? "text-green-700"
+                    : isOverdue ? "text-red-600"
+                    : isFrac    ? "text-purple-600"
+                    :             "text-gray-600"
+                  }`}>
+                    {label}
+                  </span>
+                  {isFrac && (
+                    <span className="block text-xs text-purple-400">prorated</span>
+                  )}
+                </div>
+
+                {/* Due date + urgency */}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm ${isPaid ? "line-through text-gray-400" : "text-gray-700"}`}>
+                    {formatDate(inst.dueDate)}
+                  </p>
+                  {!isPaid && daysLeft !== null && (
+                    <p className={`text-xs ${
+                      daysLeft < 0   ? "text-red-500"
+                      : daysLeft === 0 ? "text-orange-500"
+                      : daysLeft <= 3  ? "text-amber-600"
+                      :                  "text-gray-400"
+                    }`}>
+                      {daysLeft < 0
+                        ? `${Math.abs(daysLeft)}d overdue`
+                        : daysLeft === 0
+                        ? "Due today"
+                        : `${daysLeft}d left`}
+                    </p>
+                  )}
+                  {isPaid && inst.paidAt && (
+                    <p className="text-xs text-green-600">Paid {formatDate(inst.paidAt)}</p>
+                  )}
+                </div>
+
+                {/* Amount breakdown */}
+                <div className="text-right flex-shrink-0">
+                  <p className={`text-sm font-semibold ${
+                    isPaid ? "text-gray-400" : isFrac ? "text-purple-700" : "text-gray-900"
+                  }`}>
+                    {formatCurrency(inst.totalAmount)}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
+                  </p>
+                  {(inst.penalties ?? []).length > 0 && (
+                    <p className="text-xs text-orange-600 font-medium mt-0.5">
+                      +{formatCurrency((inst.penalties ?? []).reduce((s, p) => s + Number(p.amount), 0))} penalty
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Per-installment apply penalty button */}
+              {penaltyEnabled && !isPaid && onApplyPenalty && (
                 <button
-                  onClick={() => handleToggle(inst)}
-                  disabled={toggling}
-                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                    isPaid    ? "bg-green-500 border-green-500"
-                    : isOverdue ? "border-red-400 hover:border-red-500"
-                    :             "border-gray-300 hover:border-green-400"
-                  }`}
-                  title={isPaid ? "Mark as unpaid" : "Mark as paid"}
+                  onClick={() => onApplyPenalty(inst)}
+                  className="ml-8 mt-1 text-xs text-orange-500 hover:text-orange-700 hover:underline transition-colors"
                 >
-                  {toggling ? (
-                    <span className="w-3 h-3 border border-current border-t-transparent rounded-full spinner inline-block" />
-                  ) : isPaid ? (
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path d="M1.5 5l2.5 2.5L8.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  ) : null}
+                  + Apply penalty
                 </button>
               )}
-
-              {/* Label */}
-              <div className="flex-shrink-0 w-24">
-                <span className={`text-xs font-semibold ${
-                  isPaid    ? "text-green-700"
-                  : isOverdue ? "text-red-600"
-                  : isFrac  ? "text-purple-600"
-                  :             "text-gray-600"
-                }`}>
-                  {label}
-                </span>
-                {isFrac && (
-                  <span className="block text-xs text-purple-400">prorated</span>
-                )}
-              </div>
-
-              {/* Due date + urgency */}
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm ${isPaid ? "line-through text-gray-400" : "text-gray-700"}`}>
-                  {formatDate(inst.dueDate)}
-                </p>
-                {!isPaid && daysLeft !== null && (
-                  <p className={`text-xs ${
-                    daysLeft < 0 ? "text-red-500"
-                    : daysLeft === 0 ? "text-orange-500"
-                    : daysLeft <= 3 ? "text-amber-600"
-                    : "text-gray-400"
-                  }`}>
-                    {daysLeft < 0
-                      ? `${Math.abs(daysLeft)}d overdue`
-                      : daysLeft === 0
-                      ? "Due today"
-                      : `${daysLeft}d left`}
-                  </p>
-                )}
-                {isPaid && inst.paidAt && (
-                  <p className="text-xs text-green-600">Paid {formatDate(inst.paidAt)}</p>
-                )}
-              </div>
-
-              {/* Amount breakdown */}
-              <div className="text-right flex-shrink-0">
-                <p className={`text-sm font-semibold ${
-                  isPaid ? "text-gray-400" : isFrac ? "text-purple-700" : "text-gray-900"
-                }`}>
-                  {formatCurrency(inst.totalAmount)}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {formatCurrency(inst.principalAmount)} + {formatCurrency(inst.interestAmount)}
-                </p>
-                {/* Installment-level penalties */}
-                {(inst.penalties ?? []).length > 0 && (
-                  <p className="text-xs text-orange-600 font-medium mt-0.5">
-                    +{formatCurrency((inst.penalties ?? []).reduce((s, p) => s + Number(p.amount), 0))} penalty
-                  </p>
-                )}
-              </div>
             </div>
-            {/* Per-installment apply penalty button */}
-            {penaltyEnabled && !isPaid && onApplyPenalty && (
-              <button
-                onClick={() => onApplyPenalty(inst)}
-                className="ml-8 mt-1 text-xs text-orange-500 hover:text-orange-700 hover:underline transition-colors"
-              >
-                + Apply penalty
-              </button>
-            )}
           );
         })}
       </div>

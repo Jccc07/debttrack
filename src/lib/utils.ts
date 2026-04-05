@@ -60,15 +60,19 @@ export function computeInstallments(
   monthlyRate: number,
   months: number,
   method: "FLAT" | "REDUCING",
-  startDate: Date
+  startDate: Date,
+  intervalDays: number = 30
 ): InstallmentScheduleRow[] {
   const schedule: InstallmentScheduleRow[] = [];
   const rate = monthlyRate / 100;
 
-  const wholeMonths = Math.floor(months);
-  const fraction    = round2(months - wholeMonths);
+  const wholeMonths  = Math.floor(months);
+  const fraction     = round2(months - wholeMonths);
   const totalPeriods = wholeMonths + (fraction > 0 ? 1 : 0);
   const principalPerMonth = round2(principal / months);
+
+  // Use day-based intervals if intervalDays !== 30, otherwise use month-based
+  const useDayInterval = intervalDays !== 30;
 
   if (method === "FLAT") {
     const totalInterest    = round2(principal * rate * months);
@@ -76,42 +80,52 @@ export function computeInstallments(
     let remaining = principal;
 
     for (let i = 1; i <= totalPeriods; i++) {
-      const isFractional = i === totalPeriods && fraction > 0;
-      const multiplier   = isFractional ? fraction : 1;
+      const isFractional    = i === totalPeriods && fraction > 0;
+      const multiplier      = isFractional ? fraction : 1;
       const periodPrincipal = round2(principalPerMonth * multiplier);
       const periodInterest  = round2(interestPerMonth  * multiplier);
       const periodTotal     = round2(periodPrincipal + periodInterest);
       remaining = round2(remaining - periodPrincipal);
       schedule.push({
         monthNumber: i,
-        dueDate: periodDueDate(startDate, wholeMonths, i, fraction),
+        dueDate: useDayInterval
+          ? dayBasedDueDate(startDate, i, intervalDays)
+          : periodDueDate(startDate, wholeMonths, i, fraction),
         principalAmount: periodPrincipal,
-        interestAmount: periodInterest,
-        totalAmount: periodTotal,
+        interestAmount:  periodInterest,
+        totalAmount:     periodTotal,
         remainingBalance: Math.max(0, remaining),
       });
     }
   } else {
     let remaining = principal;
     for (let i = 1; i <= totalPeriods; i++) {
-      const isFractional = i === totalPeriods && fraction > 0;
-      const multiplier   = isFractional ? fraction : 1;
+      const isFractional    = i === totalPeriods && fraction > 0;
+      const multiplier      = isFractional ? fraction : 1;
       const periodPrincipal = round2(principalPerMonth * multiplier);
       const periodInterest  = round2(remaining * rate * multiplier);
       const periodTotal     = round2(periodPrincipal + periodInterest);
       remaining = round2(remaining - periodPrincipal);
       schedule.push({
         monthNumber: i,
-        dueDate: periodDueDate(startDate, wholeMonths, i, fraction),
+        dueDate: useDayInterval
+          ? dayBasedDueDate(startDate, i, intervalDays)
+          : periodDueDate(startDate, wholeMonths, i, fraction),
         principalAmount: periodPrincipal,
-        interestAmount: periodInterest,
-        totalAmount: periodTotal,
+        interestAmount:  periodInterest,
+        totalAmount:     periodTotal,
         remainingBalance: Math.max(0, remaining),
       });
     }
   }
 
   return schedule;
+}
+
+function dayBasedDueDate(startDate: Date, periodIndex: number, intervalDays: number): Date {
+  const d = new Date(startDate);
+  d.setDate(d.getDate() + periodIndex * intervalDays);
+  return d;
 }
 
 function periodDueDate(startDate: Date, wholeMonths: number, periodIndex: number, fraction: number): Date {
@@ -138,18 +152,6 @@ export function computeInstallmentTotal(
   return round2(schedule.reduce((sum, row) => sum + row.totalAmount, 0));
 }
 
-/**
- * Compute how much penalty should be applied right now.
- *
- * @param baseAmount      - the amount the penalty is calculated against
- * @param dueDate         - original due date
- * @param graceDays       - days after due before penalty starts
- * @param penaltyType     - "PERCENT" or "FLAT"
- * @param penaltyAmount   - % of base or flat ₱ per occurrence
- * @param frequency       - "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY"
- * @param alreadyApplied  - total penalties already applied (to avoid double-charging)
- * @param referenceDate   - defaults to today (for testing)
- */
 export function computePenaltyPreview(
   baseAmount: number,
   dueDate: Date | string,
@@ -166,28 +168,25 @@ export function computePenaltyPreview(
   due.setHours(0, 0, 0, 0);
 
   const daysOverdue = Math.floor((today.getTime() - due.getTime()) / 86400000);
-  if (daysOverdue <= 0) return null; // not yet overdue
+  if (daysOverdue <= 0) return null;
 
   const daysAfterGrace = daysOverdue - graceDays;
-  if (daysAfterGrace <= 0) return null; // still within grace period
+  if (daysAfterGrace <= 0) return null;
 
-  // How many occurrences have elapsed
   let occurrences: number;
-  if (frequency === "ONCE")    occurrences = 1;
+  if (frequency === "ONCE")         occurrences = 1;
   else if (frequency === "DAILY")   occurrences = daysAfterGrace;
   else if (frequency === "WEEKLY")  occurrences = Math.floor(daysAfterGrace / 7);
   else /* MONTHLY */                occurrences = Math.floor(daysAfterGrace / 30);
 
   if (occurrences < 1) return null;
 
-  // Per-occurrence penalty amount
   const perOccurrence = penaltyType === "PERCENT"
     ? round2(baseAmount * (penaltyAmount / 100))
     : round2(penaltyAmount);
 
   const grossPenalty = round2(perOccurrence * occurrences);
-  // Subtract already-applied penalties so we only suggest the new delta
-  const newPenalty = round2(Math.max(0, grossPenalty - alreadyApplied));
+  const newPenalty   = round2(Math.max(0, grossPenalty - alreadyApplied));
 
   if (newPenalty <= 0) return null;
 
