@@ -29,17 +29,21 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${map[status] ?? "bg-gray-50 text-gray-600"}`}>{status.charAt(0) + status.slice(1).toLowerCase()}</span>;
 }
 
-/** Compute live accrued penalty for a transaction (no DB, pure math) */
+function FlameIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg width="9" height="11" viewBox="0 0 9 11" fill="none" className={className}>
+      <path d="M4.5 10.5C2.5 10.5 1 9.1 1 7.2c0-1.2.5-2 1.2-2.7.2-.2.4 0 .3.2-.1.5-.1 1.1.3 1.5.1.1.3.1.3-.1.2-1 .8-2.5 2.4-3.4.2-.1.4.1.3.3-.3.8-.2 1.7.4 2.2.1.1.2 0 .2-.1.1-.4.3-.9.7-1.2.2-.1.4 0 .3.2-.1.4 0 .9.2 1.2C8 5.9 8 6.5 8 7.2c0 1.9-1.5 3.3-3.5 3.3z" fill="currentColor"/>
+    </svg>
+  );
+}
+
 function getLivePenaltyAmount(tx: Transaction): number {
   if (
     !tx.penaltyEnabled || !tx.dueDate || tx.status === "PAID" ||
     tx.penaltyGraceDays === null || tx.penaltyGraceDays === undefined ||
     !tx.penaltyType || !tx.penaltyAmount || !tx.penaltyFrequency
   ) return 0;
-
-  // For installment transactions (non-payAtEnd), penalty is per installment — skip top-level
   if (tx.isInstallment && !tx.payAtEnd) return 0;
-
   const preview = computePenaltyPreview(
     Number(tx.endAmount),
     tx.dueDate,
@@ -131,27 +135,34 @@ export default function DashboardClient() {
           <div className="divide-y divide-gray-50">
             {data.recentTransactions.map((tx) => {
               const livePenalty = getLivePenaltyAmount(tx);
-              const displayAmount = Number(tx.endAmount) + livePenalty;
               const hasPenalty = livePenalty > 0;
+              const displayAmount = Number(tx.endAmount) + livePenalty;
 
               return (
-                <button key={tx.id} onClick={() => setSelectedTx(tx)}
-                  className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors text-left group">
+                <button
+                  key={tx.id}
+                  onClick={() => setSelectedTx(tx)}
+                  className={`w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors text-left group ${hasPenalty ? "border-l-2 border-l-orange-300" : ""}`}
+                >
+                  {/* Left: icon + name + badges */}
                   <div className="flex items-center gap-3 min-w-0">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 ${tx.type === "LEND" ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-500"}`}>
                       {tx.type === "LEND" ? "↑" : "↓"}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-green-700 transition-colors">{tx.counterparty ?? "Unknown"}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-green-700 transition-colors">
+                          {tx.counterparty ?? "Unknown"}
+                        </p>
                         {tx.isInstallment && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium flex-shrink-0">
                             {tx.installmentMonths}×
                           </span>
                         )}
                         {hasPenalty && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-600 text-xs font-medium flex-shrink-0">
-                            ⚠ penalty
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-600 text-xs font-semibold flex-shrink-0">
+                            <FlameIcon />
+                            penalty
                           </span>
                         )}
                       </div>
@@ -162,16 +173,22 @@ export default function DashboardClient() {
                       </p>
                     </div>
                   </div>
+
+                  {/* Right: amount + status */}
                   <div className="flex items-center gap-3 flex-shrink-0 ml-4">
                     <div className="text-right">
                       {hasPenalty ? (
                         <>
+                          <div className="flex items-center justify-end gap-1">
+                            <FlameIcon className="text-orange-500" />
+                            <p className="text-sm font-bold text-orange-600">
+                              {tx.type === "LEND" ? "+" : "−"}{formatCurrency(displayAmount)}
+                            </p>
+                          </div>
                           <p className="text-xs text-gray-400 line-through leading-none">
                             {tx.type === "LEND" ? "+" : "−"}{formatCurrency(tx.endAmount)}
                           </p>
-                          <p className={`text-sm font-bold text-orange-600`}>
-                            {tx.type === "LEND" ? "+" : "−"}{formatCurrency(displayAmount)}
-                          </p>
+                          <p className="text-xs text-orange-400">+{formatCurrency(livePenalty)} penalty</p>
                         </>
                       ) : (
                         <p className={`text-sm font-bold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>

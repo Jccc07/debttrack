@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Transaction, TransactionFilters } from "@/types";
-import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
+import { formatCurrency, formatDate, getDaysUntilDue, computePenaltyPreview } from "@/lib/utils";
 import TransactionForm from "@/components/TransactionForm";
 import TransactionDetailsModal from "@/components/TransactionDetailsModal";
 import DeleteConfirmModal from "@/components/DeleteConfirmModal";
@@ -22,6 +22,27 @@ function DueBadge({ dueDate, status, isInstallment }: { dueDate: string | Date |
   const color = days < 0 ? "text-red-500" : days <= 3 ? "text-amber-600" : "text-gray-400";
   const label = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "due today" : `${days}d left`;
   return <span className={`text-xs ${color}`}>{label}</span>;
+}
+
+/** Compute live accrued penalty for a transaction (pure math, no DB) */
+function getLivePenaltyAmount(tx: Transaction): number {
+  if (
+    !tx.penaltyEnabled || !tx.dueDate || tx.status === "PAID" ||
+    tx.penaltyGraceDays === null || tx.penaltyGraceDays === undefined ||
+    !tx.penaltyType || !tx.penaltyAmount || !tx.penaltyFrequency
+  ) return 0;
+  // For regular installments penalty is per-installment; skip top-level
+  if (tx.isInstallment && !tx.payAtEnd) return 0;
+  const preview = computePenaltyPreview(
+    Number(tx.endAmount),
+    tx.dueDate,
+    tx.penaltyGraceDays,
+    tx.penaltyType,
+    Number(tx.penaltyAmount),
+    tx.penaltyFrequency,
+    0
+  );
+  return preview?.amount ?? 0;
 }
 
 function exportCSV(transactions: Transaction[]) {
@@ -132,6 +153,7 @@ function TransactionsPageInner() {
         </div>
       </div>
 
+      {/* Filters */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[180px]">
@@ -164,6 +186,7 @@ function TransactionsPageInner() {
         </div>
       </div>
 
+      {/* Table */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16"><span className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full spinner" /></div>
@@ -184,67 +207,108 @@ function TransactionsPageInner() {
             </div>
 
             <div className="divide-y divide-gray-50">
-              {transactions.map((tx) => (
-                <div key={tx.id} className="grid grid-cols-[1fr_auto] md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-4 items-center hover:bg-gray-50 transition-colors group">
-                  <button onClick={() => setSelectedTx(tx)} className="flex items-center gap-3 text-left">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 ${tx.type === "LEND" ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-500"}`}>
-                      {tx.type === "LEND" ? "↑" : "↓"}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-medium text-gray-900 hover:text-green-700 transition-colors">{tx.counterparty ?? "—"}</p>
-                        {tx.isInstallment && <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">{tx.installmentMonths}×</span>}
+              {transactions.map((tx) => {
+                const livePenalty = getLivePenaltyAmount(tx);
+                const hasPenalty = livePenalty > 0;
+                const displayAmount = Number(tx.endAmount) + livePenalty;
+
+                return (
+                  <div key={tx.id} className={`grid grid-cols-[1fr_auto] md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] gap-4 px-5 py-4 items-center hover:bg-gray-50 transition-colors group ${hasPenalty ? "border-l-2 border-l-orange-300" : ""}`}>
+
+                    {/* Person */}
+                    <button onClick={() => setSelectedTx(tx)} className="flex items-center gap-3 text-left">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0 ${tx.type === "LEND" ? "bg-blue-50 text-blue-600" : "bg-red-50 text-red-500"}`}>
+                        {tx.type === "LEND" ? "↑" : "↓"}
                       </div>
-                      <p className="text-xs text-gray-400">{tx.type === "LEND" ? "Lent" : "Borrowed"}</p>
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-sm font-medium text-gray-900 hover:text-green-700 transition-colors">{tx.counterparty ?? "—"}</p>
+                          {tx.isInstallment && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">{tx.installmentMonths}×</span>
+                          )}
+                          {hasPenalty && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-600 text-xs font-semibold">
+                              {/* Flame icon */}
+                              <svg width="9" height="11" viewBox="0 0 9 11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M4.5 10.5C2.5 10.5 1 9.1 1 7.2c0-1.2.5-2 1.2-2.7.2-.2.4 0 .3.2-.1.5-.1 1.1.3 1.5.1.1.3.1.3-.1.2-1 .8-2.5 2.4-3.4.2-.1.4.1.3.3-.3.8-.2 1.7.4 2.2.1.1.2 0 .2-.1.1-.4.3-.9.7-1.2.2-.1.4 0 .3.2-.1.4 0 .9.2 1.2C8 5.9 8 6.5 8 7.2c0 1.9-1.5 3.3-3.5 3.3z" fill="currentColor"/>
+                              </svg>
+                              penalty
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400">{tx.type === "LEND" ? "Lent" : "Borrowed"}</p>
+                      </div>
+                    </button>
+
+                    {/* Date */}
+                    <div className="hidden md:flex justify-center">
+                      <span className="text-sm text-gray-500">{formatDate(tx.transactionDate)}</span>
                     </div>
-                  </button>
 
-                  <div className="hidden md:flex justify-center">
-                    <span className="text-sm text-gray-500">{formatDate(tx.transactionDate)}</span>
-                  </div>
-
-                  <div className="hidden md:flex flex-col items-center">
-                    <p className={`text-sm font-semibold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>{formatCurrency(tx.endAmount)}</p>
-                    {tx.isInstallment
-                      ? <p className="text-xs text-gray-400">{formatCurrency(Number(tx.endAmount) / (tx.installmentMonths ?? 1))}/mo est.</p>
-                      : Number(tx.interestRate) > 0 && <p className="text-xs text-gray-400">{formatCurrency(tx.amount)} +{Number(tx.interestRate)}{tx.interestType === "PERCENT" ? "%" : "₱"}</p>
-                    }
-                  </div>
-
-                  <div className="hidden md:flex flex-col items-center">
-                    {tx.isInstallment
-                      ? <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">{tx.installmentMonths}mo · {tx.installmentMethod}</span>
-                      : <>
-                          <p className="text-sm text-gray-600">{formatDate(tx.dueDate)}</p>
-                          <DueBadge dueDate={tx.dueDate} status={tx.status} />
+                    {/* Amount — shows live total, penalty breakdown below */}
+                    <div className="hidden md:flex flex-col items-center">
+                      {hasPenalty ? (
+                        <>
+                          <div className="flex items-center gap-1">
+                            {/* Small flame next to the amount itself */}
+                            <svg width="9" height="11" viewBox="0 0 9 11" fill="none" className="text-orange-500 flex-shrink-0">
+                              <path d="M4.5 10.5C2.5 10.5 1 9.1 1 7.2c0-1.2.5-2 1.2-2.7.2-.2.4 0 .3.2-.1.5-.1 1.1.3 1.5.1.1.3.1.3-.1.2-1 .8-2.5 2.4-3.4.2-.1.4.1.3.3-.3.8-.2 1.7.4 2.2.1.1.2 0 .2-.1.1-.4.3-.9.7-1.2.2-.1.4 0 .3.2-.1.4 0 .9.2 1.2C8 5.9 8 6.5 8 7.2c0 1.9-1.5 3.3-3.5 3.3z" fill="currentColor"/>
+                            </svg>
+                            <p className="text-sm font-bold text-orange-600">{formatCurrency(displayAmount)}</p>
+                          </div>
+                          {/* Subtotal + penalty breakdown */}
+                          <p className="text-xs text-gray-400 line-through leading-none">{formatCurrency(tx.endAmount)}</p>
+                          <p className="text-xs text-orange-400">+{formatCurrency(livePenalty)} penalty</p>
                         </>
-                    }
-                  </div>
+                      ) : (
+                        <>
+                          <p className={`text-sm font-semibold ${tx.type === "LEND" ? "text-blue-600" : "text-red-500"}`}>{formatCurrency(tx.endAmount)}</p>
+                          {tx.isInstallment
+                            ? <p className="text-xs text-gray-400">{formatCurrency(Number(tx.endAmount) / (tx.installmentMonths ?? 1))}/mo est.</p>
+                            : Number(tx.interestRate) > 0 && <p className="text-xs text-gray-400">{formatCurrency(tx.amount)} +{Number(tx.interestRate)}{tx.interestType === "PERCENT" ? "%" : "₱"}</p>
+                          }
+                        </>
+                      )}
+                    </div>
 
-                  <div className="hidden md:flex justify-center"><StatusBadge status={tx.status} /></div>
+                    {/* Due / Plan */}
+                    <div className="hidden md:flex flex-col items-center">
+                      {tx.isInstallment
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-medium">{tx.installmentMonths}mo · {tx.installmentMethod}</span>
+                        : <>
+                            <p className="text-sm text-gray-600">{formatDate(tx.dueDate)}</p>
+                            <DueBadge dueDate={tx.dueDate} status={tx.status} />
+                          </>
+                      }
+                    </div>
 
-                  <div className="flex items-center justify-center gap-1">
-                    <button onClick={() => setSelectedTx(tx)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="View">
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.3"/><path d="M1 7s2-4.5 6-4.5S13 7 13 7s-2 4.5-6 4.5S1 7 1 7z" stroke="currentColor" strokeWidth="1.3"/></svg>
-                    </button>
-                    {!tx.isInstallment && (
-                      <button onClick={() => toggleStatus(tx)} disabled={togglingId === tx.id}
-                        className={`p-1.5 rounded-lg transition-colors ${tx.status === "PAID" ? "text-green-600 hover:text-gray-400 hover:bg-gray-100" : "text-gray-400 hover:text-green-600 hover:bg-green-50"}`}
-                        title={tx.status === "PAID" ? "Mark unpaid" : "Mark paid"}>
-                        {togglingId === tx.id
-                          ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full spinner inline-block" />
-                          : tx.status === "PAID"
-                          ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                          : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7l3.5 3.5L12 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        }
+                    {/* Status */}
+                    <div className="hidden md:flex justify-center"><StatusBadge status={tx.status} /></div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setSelectedTx(tx)} className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="View">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.3"/><path d="M1 7s2-4.5 6-4.5S13 7 13 7s-2 4.5-6 4.5S1 7 1 7z" stroke="currentColor" strokeWidth="1.3"/></svg>
                       </button>
-                    )}
-                    <button onClick={() => setDeleteTarget(tx)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Delete">
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5 3.5V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v1M5.5 6v4M8.5 6v4M3 3.5l.75 8a.5.5 0 0 0 .5.5h5.5a.5.5 0 0 0 .5-.5L11 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-                    </button>
+                      {!tx.isInstallment && (
+                        <button onClick={() => toggleStatus(tx)} disabled={togglingId === tx.id}
+                          className={`p-1.5 rounded-lg transition-colors ${tx.status === "PAID" ? "text-green-600 hover:text-gray-400 hover:bg-gray-100" : "text-gray-400 hover:text-green-600 hover:bg-green-50"}`}
+                          title={tx.status === "PAID" ? "Mark unpaid" : "Mark paid"}>
+                          {togglingId === tx.id
+                            ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full spinner inline-block" />
+                            : tx.status === "PAID"
+                            ? <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                            : <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7l3.5 3.5L12 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                          }
+                        </button>
+                      )}
+                      <button onClick={() => setDeleteTarget(tx)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Delete">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M5 3.5V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v1M5.5 6v4M8.5 6v4M3 3.5l.75 8a.5.5 0 0 0 .5.5h5.5a.5.5 0 0 0 .5-.5L11 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {totalPages > 1 && (
