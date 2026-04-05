@@ -60,6 +60,12 @@ export async function POST(req: NextRequest) {
       isInstallment = false, installmentMonths, installmentMethod,
       installmentIntervalDays = 30,
       payAtEnd = false,
+      // ✅ FIX: destructure penalty fields from the request body
+      penaltyEnabled = false,
+      penaltyGraceDays,
+      penaltyType,
+      penaltyAmount,
+      penaltyFrequency,
     } = body;
 
     if (!type || !amount || !transactionDate) {
@@ -110,6 +116,12 @@ export async function POST(req: NextRequest) {
           installmentMethod: isInstallment ? installmentMethod : null,
           installmentIntervalDays: isInstallment ? intervalDays : null,
           payAtEnd: isInstallment ? payAtEnd : false,
+          // ✅ FIX: persist penalty fields on creation
+          penaltyEnabled,
+          penaltyGraceDays: penaltyEnabled ? (penaltyGraceDays ?? null) : null,
+          penaltyType: penaltyEnabled ? (penaltyType ?? null) : null,
+          penaltyAmount: penaltyEnabled ? (penaltyAmount ?? null) : null,
+          penaltyFrequency: penaltyEnabled ? (penaltyFrequency ?? null) : null,
         },
       });
 
@@ -130,9 +142,9 @@ export async function POST(req: NextRequest) {
       return tx.transaction.findUnique({
         where: { id: created.id },
         include: {
-        installments: { orderBy: { monthNumber: "asc" }, include: { penalties: { orderBy: { appliedAt: "desc" } } } },
-        penalties: { orderBy: { appliedAt: "desc" } },
-      },
+          installments: { orderBy: { monthNumber: "asc" }, include: { penalties: { orderBy: { appliedAt: "desc" } } } },
+          penalties: { orderBy: { appliedAt: "desc" } },
+        },
       });
     });
 
