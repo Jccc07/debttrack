@@ -32,7 +32,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
   const interest = Number(tx.endAmount) - Number(tx.amount);
 
   async function togglePaid() {
-    if (tx.isInstallment) return; // installments are toggled individually
+    if (tx.isInstallment && !tx.payAtEnd) return; // per-installment transactions toggled individually
     setMarking(true);
     const newStatus = tx.status === "PAID" ? "UNPAID" : "PAID";
     const res = await fetch(`/api/transactions/${tx.id}`, {
@@ -171,7 +171,7 @@ export default function TransactionDetailsModal({ transaction: initialTx, onClos
 
           {/* Actions */}
           <div className="px-6 pb-5 pt-3 flex gap-2 border-t border-gray-50 flex-shrink-0">
-            {!tx.isInstallment && (
+            {(!tx.isInstallment || tx.payAtEnd) && (
               <button onClick={togglePaid} disabled={marking}
                 className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
                   tx.status === "PAID" ? "border border-gray-200 text-gray-600 hover:bg-gray-50" : "bg-green-600 hover:bg-green-700 text-white"}`}>
