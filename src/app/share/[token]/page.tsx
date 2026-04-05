@@ -1,6 +1,7 @@
 "use client";
 // src/app/share/[token]/page.tsx
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
 
 interface ShareData {
@@ -44,9 +45,10 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
-  // Next.js 15: unwrap the params Promise with use()
-  const { token } = use(params);
+export default function SharePage() {
+  // useParams is the safe way to read route params in client components
+  const params = useParams();
+  const token = Array.isArray(params.token) ? params.token[0] : params.token;
 
   const [data, setData] = useState<ShareData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +56,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (!token) return;
     fetch(`/api/share/${token}`)
       .then(async (r) => {
         const d = await r.json();
