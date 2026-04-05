@@ -1,6 +1,6 @@
 "use client";
 // src/app/share/[token]/page.tsx
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { formatCurrency, formatDate, getDaysUntilDue } from "@/lib/utils";
 
 interface ShareData {
@@ -44,25 +44,25 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function SharePage({ params }: { params: { token: string } }) {
+export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
+  // Next.js 15: unwrap the params Promise with use()
+  const { token } = use(params);
+
   const [data, setData] = useState<ShareData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/share/${params.token}`)
+    fetch(`/api/share/${token}`)
       .then(async (r) => {
-        if (!r.ok) {
-          const d = await r.json();
-          setError(d.error ?? "Something went wrong");
-          return;
-        }
         const d = await r.json();
+        if (!r.ok) { setError(d.error ?? "Something went wrong"); return; }
         setData(d);
       })
+      .catch(() => setError("Something went wrong. Please try again."))
       .finally(() => setLoading(false));
-  }, [params.token]);
+  }, [token]);
 
   function copyLink() {
     navigator.clipboard.writeText(window.location.href);
@@ -103,7 +103,9 @@ export default function SharePage({ params }: { params: { token: string } }) {
 
   const interest = Number(data.endAmount) - Number(data.amount);
   const daysLeft = getDaysUntilDue(data.dueDate);
-  const totalPenalties = (data.penalties ?? []).filter((p: any) => !p.installmentId).reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+  const totalPenalties = (data.penalties ?? [])
+    .filter((p: any) => !p.installmentId)
+    .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
   const grandTotal = Number(data.endAmount) + totalPenalties;
   const expiresAt = data.shareExpiresAt ? new Date(data.shareExpiresAt) : null;
   const daysUntilExpiry = expiresAt
@@ -164,41 +166,38 @@ export default function SharePage({ params }: { params: { token: string } }) {
 
         {/* Main card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {/* Header */}
-          <div className={`px-6 py-5 border-b border-gray-100 ${
-            data.type === "LEND" ? "bg-blue-50/40" : "bg-red-50/40"
-          }`}>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold flex-shrink-0 ${
-                  data.type === "LEND" ? "bg-blue-100 text-blue-600" : "bg-red-100 text-red-500"
-                }`}>
-                  {data.type === "LEND" ? "↑" : "↓"}
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900">{data.counterparty ?? "Unknown"}</h1>
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    {data.type === "LEND" ? "Lent by" : "Borrowed from"} <span className="font-medium text-gray-700">{data.sharedBy}</span>
-                    {" · "}{formatDate(data.transactionDate)}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    <StatusBadge status={data.status} />
-                    {data.isInstallment && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
-                        {data.installmentMonths}× installment
-                      </span>
-                    )}
-                    {data.payAtEnd && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
-                        Pay at end
-                      </span>
-                    )}
-                    {data.penaltyEnabled && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-medium border border-orange-200">
-                        ⚠ Penalty rule
-                      </span>
-                    )}
-                  </div>
+          {/* Card header */}
+          <div className={`px-6 py-5 border-b border-gray-100 ${data.type === "LEND" ? "bg-blue-50/40" : "bg-red-50/40"}`}>
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold flex-shrink-0 ${
+                data.type === "LEND" ? "bg-blue-100 text-blue-600" : "bg-red-100 text-red-500"
+              }`}>
+                {data.type === "LEND" ? "↑" : "↓"}
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">{data.counterparty ?? "Unknown"}</h1>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {data.type === "LEND" ? "Lent by" : "Borrowed from"}{" "}
+                  <span className="font-medium text-gray-700">{data.sharedBy}</span>
+                  {" · "}{formatDate(data.transactionDate)}
+                </p>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <StatusBadge status={data.status} />
+                  {data.isInstallment && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
+                      {data.installmentMonths}× installment
+                    </span>
+                  )}
+                  {data.payAtEnd && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
+                      Pay at end
+                    </span>
+                  )}
+                  {data.penaltyEnabled && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-medium border border-orange-200">
+                      ⚠ Penalty rule
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -261,7 +260,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
               </div>
             )}
 
-            {/* Due date or installment schedule */}
+            {/* Installment schedule or due date */}
             {data.isInstallment && data.installments && data.installments.length > 0 ? (
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Payment schedule</p>
@@ -282,7 +281,6 @@ export default function SharePage({ params }: { params: { token: string } }) {
                   </div>
                 ) : (
                   <div className="rounded-xl border border-gray-100 overflow-hidden">
-                    {/* Progress */}
                     <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
                       <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
                         <span>{data.installments.filter((i: any) => i.status === "PAID").length} of {data.installments.length} paid</span>
@@ -295,7 +293,6 @@ export default function SharePage({ params }: { params: { token: string } }) {
                         />
                       </div>
                     </div>
-                    {/* Rows */}
                     <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
                       {data.installments.map((inst: any) => {
                         const isPaid = inst.status === "PAID";
@@ -303,12 +300,8 @@ export default function SharePage({ params }: { params: { token: string } }) {
                         const days = getDaysUntilDue(inst.dueDate);
                         const instPenalties = (inst.penalties ?? []).reduce((sum: number, p: any) => sum + Number(p.amount), 0);
                         return (
-                          <div key={inst.id} className={`flex items-center gap-3 px-4 py-3 ${
-                            isPaid ? "bg-green-50/30" : isOverdue ? "bg-red-50/30" : ""
-                          }`}>
-                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
-                              isPaid ? "bg-green-500 border-green-500" : isOverdue ? "border-red-400" : "border-gray-300"
-                            }`}>
+                          <div key={inst.id} className={`flex items-center gap-3 px-4 py-3 ${isPaid ? "bg-green-50/30" : isOverdue ? "bg-red-50/30" : ""}`}>
+                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${isPaid ? "bg-green-500 border-green-500" : isOverdue ? "border-red-400" : "border-gray-300"}`}>
                               {isPaid && (
                                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                                   <path d="M1.5 5l2.5 2.5L8.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -384,9 +377,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
             Shared via <span className="font-semibold text-gray-500">DebtTrack</span> · View only, no account required
           </p>
           {expiresAt && (
-            <p className="text-xs text-gray-400">
-              Link expires {formatDate(expiresAt)}
-            </p>
+            <p className="text-xs text-gray-400">Link expires {formatDate(expiresAt)}</p>
           )}
         </div>
       </div>
