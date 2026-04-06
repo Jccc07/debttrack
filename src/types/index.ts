@@ -3,6 +3,7 @@ export type TransactionType = "LEND" | "OWE";
 export type TransactionStatus = "UNPAID" | "PAID" | "OVERDUE";
 export type InterestType = "PERCENT" | "FLAT";
 export type InstallmentMethod = "FLAT" | "REDUCING";
+export type InstallmentFrequency = "MONTHLY" | "TWICE_MONTHLY";
 export type PenaltyType = "PERCENT" | "FLAT";
 export type PenaltyFrequency = "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY";
 
@@ -40,7 +41,7 @@ export interface Transaction {
   interestType: InterestType;
   endAmount: number | string;
   counterparty: string | null;
-  counterpartyEmail: string | null;  // ← NEW
+  counterpartyEmail: string | null;
   notes: string | null;
   transactionDate: string | Date;
   dueDate: string | Date | null;
@@ -52,6 +53,9 @@ export interface Transaction {
   installmentMethod: InstallmentMethod | null;
   installmentIntervalDays: number | null;
   payAtEnd: boolean;
+  installmentFrequency: InstallmentFrequency | null;
+  biMonthlyDay1: number | null;
+  biMonthlyDay2: number | null;
   installments?: Installment[];
   // Penalty rule
   penaltyEnabled: boolean;

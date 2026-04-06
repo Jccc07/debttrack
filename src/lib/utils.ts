@@ -55,6 +55,7 @@ export function fractionLabel(fraction: number): string {
   return `${Math.round(fraction * 100)}% month`;
 }
 
+// ─── Standard monthly installments ───────────────────────────────────────────
 export function computeInstallments(
   principal: number,
   monthlyRate: number,
@@ -66,12 +67,11 @@ export function computeInstallments(
   const schedule: InstallmentScheduleRow[] = [];
   const rate = monthlyRate / 100;
 
-  const wholeMonths  = Math.floor(months);
-  const fraction     = round2(months - wholeMonths);
-  const totalPeriods = wholeMonths + (fraction > 0 ? 1 : 0);
+  const wholeMonths       = Math.floor(months);
+  const fraction          = round2(months - wholeMonths);
+  const totalPeriods      = wholeMonths + (fraction > 0 ? 1 : 0);
   const principalPerMonth = round2(principal / months);
-
-  const useDayInterval = intervalDays !== 30;
+  const useDayInterval    = intervalDays !== 30;
 
   if (method === "FLAT") {
     const totalInterest    = round2(principal * rate * months);
@@ -82,7 +82,7 @@ export function computeInstallments(
       const isFractional    = i === totalPeriods && fraction > 0;
       const multiplier      = isFractional ? fraction : 1;
       const periodPrincipal = round2(principalPerMonth * multiplier);
-      const periodInterest  = round2(interestPerMonth  * multiplier);
+      const periodInterest  = round2(interestPerMonth * multiplier);
       const periodTotal     = round2(periodPrincipal + periodInterest);
       remaining = round2(remaining - periodPrincipal);
       schedule.push({
@@ -91,8 +91,8 @@ export function computeInstallments(
           ? dayBasedDueDate(startDate, i, intervalDays)
           : periodDueDate(startDate, wholeMonths, i, fraction),
         principalAmount: periodPrincipal,
-        interestAmount:  periodInterest,
-        totalAmount:     periodTotal,
+        interestAmount: periodInterest,
+        totalAmount: periodTotal,
         remainingBalance: Math.max(0, remaining),
       });
     }
@@ -111,14 +111,86 @@ export function computeInstallments(
           ? dayBasedDueDate(startDate, i, intervalDays)
           : periodDueDate(startDate, wholeMonths, i, fraction),
         principalAmount: periodPrincipal,
-        interestAmount:  periodInterest,
-        totalAmount:     periodTotal,
+        interestAmount: periodInterest,
+        totalAmount: periodTotal,
         remainingBalance: Math.max(0, remaining),
       });
     }
   }
 
   return schedule;
+}
+
+// ─── Bi-monthly installments (two cutoffs per month) ─────────────────────────
+// Each monthly payment is split in half.
+// day1 = first cutoff (e.g. 15), day2 = second cutoff (e.g. 30).
+// For months x full months: generates 2x payments.
+// Interest is charged per half-month period (monthlyRate / 2).
+export function computeInstallmentsBiMonthly(
+  principal: number,
+  monthlyRate: number,
+  months: number,
+  method: "FLAT" | "REDUCING",
+  startDate: Date,
+  day1: number,  // e.g. 15
+  day2: number   // e.g. 30
+): InstallmentScheduleRow[] {
+  // First build the monthly schedule, then split each period into two halves
+  const monthly = computeInstallments(principal, monthlyRate, months, method, startDate);
+  const schedule: InstallmentScheduleRow[] = [];
+  let periodIndex = 0;
+
+  for (const row of monthly) {
+    // Each monthly row spawns two half-payments
+    const halfPrincipal = round2(row.principalAmount / 2);
+    const halfInterest  = round2(row.interestAmount / 2);
+    const halfTotal     = round2(halfPrincipal + halfInterest);
+
+    // Due dates: figure out which calendar month this period falls in
+    const baseMonth = new Date(row.dueDate);
+    const year  = baseMonth.getFullYear();
+    const month = baseMonth.getMonth(); // 0-indexed
+
+    // First half: day1 of that month
+    const date1 = new Date(year, month, Math.min(day1, daysInMonth(year, month)));
+    // Second half: day2 of that month (cap to last day of month)
+    const date2 = new Date(year, month, Math.min(day2, daysInMonth(year, month)));
+
+    // If startDate is after date1, push date1 forward to next occurrence
+    const adjustedDate1 = date1 <= startDate
+      ? new Date(year, month + 1, Math.min(day1, daysInMonth(year, month + 1)))
+      : date1;
+
+    const adjustedDate2 = date2 <= startDate
+      ? new Date(year, month + 1, Math.min(day2, daysInMonth(year, month + 1)))
+      : date2;
+
+    periodIndex++;
+    schedule.push({
+      monthNumber: periodIndex,
+      dueDate: adjustedDate1,
+      principalAmount: halfPrincipal,
+      interestAmount: halfInterest,
+      totalAmount: halfTotal,
+      remainingBalance: round2(row.remainingBalance + halfPrincipal), // still owe second half
+    });
+
+    periodIndex++;
+    schedule.push({
+      monthNumber: periodIndex,
+      dueDate: adjustedDate2,
+      principalAmount: halfPrincipal,
+      interestAmount: halfInterest,
+      totalAmount: halfTotal,
+      remainingBalance: row.remainingBalance,
+    });
+  }
+
+  return schedule;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
 }
 
 function dayBasedDueDate(startDate: Date, periodIndex: number, intervalDays: number): Date {
@@ -172,18 +244,14 @@ export function computePenaltyPreview(
   const daysAfterGrace = daysOverdue - graceDays;
   if (daysAfterGrace <= 0) return null;
 
-  // Occurrences: always at least 1 once past the grace period.
-  // For WEEKLY/MONTHLY we use Math.max(1, floor) so the first partial
-  // period still counts as one occurrence.
   let occurrences: number;
   if (frequency === "ONCE") {
     occurrences = 1;
   } else if (frequency === "DAILY") {
-    occurrences = daysAfterGrace; // 1 per day, naturally ≥ 1
+    occurrences = daysAfterGrace;
   } else if (frequency === "WEEKLY") {
     occurrences = Math.max(1, Math.floor(daysAfterGrace / 7));
   } else {
-    // MONTHLY
     occurrences = Math.max(1, Math.floor(daysAfterGrace / 30));
   }
 

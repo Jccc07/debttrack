@@ -1,8 +1,14 @@
 "use client";
 // src/components/TransactionForm.tsx
 import { useState, useMemo } from "react";
-import { Transaction, TransactionType, InterestType, InstallmentMethod, PenaltyType, PenaltyFrequency } from "@/types";
-import { computeEndAmount, computeInstallments, formatCurrency, fractionLabel } from "@/lib/utils";
+import {
+  Transaction, TransactionType, InterestType, InstallmentMethod,
+  InstallmentFrequency, PenaltyType, PenaltyFrequency,
+} from "@/types";
+import {
+  computeEndAmount, computeInstallments, computeInstallmentsBiMonthly,
+  formatCurrency, fractionLabel,
+} from "@/lib/utils";
 
 interface TransactionFormProps {
   onClose: () => void;
@@ -12,6 +18,7 @@ interface TransactionFormProps {
 
 const today = new Date().toISOString().split("T")[0];
 const MONTH_PRESETS = [0.5, 1, 2, 4, 6, 12, 24];
+const DAY_OPTIONS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
 export default function TransactionForm({ onClose, onSaved, initial }: TransactionFormProps) {
   const isEdit = !!initial?.id;
@@ -24,6 +31,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     interestType: (initial?.interestType ?? "PERCENT") as InterestType,
     counterparty: initial?.counterparty ?? "",
     counterpartyEmail: initial?.counterpartyEmail ?? "",
+    sendShareLink: true, // default: include share link in creation email
     notes: initial?.notes ?? "",
     transactionDate: initial?.transactionDate
       ? new Date(initial.transactionDate).toISOString().split("T")[0]
@@ -35,6 +43,9 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     isInstallment: initial?.isInstallment ?? false,
     installmentMonths: String(initial?.installmentMonths ?? "3"),
     installmentMethod: (initial?.installmentMethod ?? "FLAT") as InstallmentMethod,
+    installmentFrequency: (initial?.installmentFrequency ?? "MONTHLY") as InstallmentFrequency,
+    biMonthlyDay1: String(initial?.biMonthlyDay1 ?? "15"),
+    biMonthlyDay2: String(initial?.biMonthlyDay2 ?? "30"),
     payAtEnd: initial?.payAtEnd ?? false,
     penaltyEnabled: initial?.penaltyEnabled ?? false,
     penaltyGraceDays: String(initial?.penaltyGraceDays ?? "3"),
@@ -52,20 +63,33 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
   const fraction     = Math.round((monthsFloat - wholeMonths) * 100) / 100;
   const hasFraction  = fraction > 0;
   const totalPeriods = wholeMonths + (hasFraction ? 1 : 0);
+  const isBiMonthly  = form.installmentFrequency === "TWICE_MONTHLY";
 
   const installmentSchedule = useMemo(() => {
     if (!form.isInstallment || !form.amount || monthsFloat < 0.5) return [];
+    const start = new Date(form.transactionDate);
+    if (isBiMonthly) {
+      return computeInstallmentsBiMonthly(
+        Number(form.amount), Number(form.interestRate), monthsFloat,
+        form.installmentMethod, start,
+        Number(form.biMonthlyDay1) || 15,
+        Number(form.biMonthlyDay2) || 30
+      );
+    }
     return computeInstallments(
       Number(form.amount), Number(form.interestRate), monthsFloat,
-      form.installmentMethod, new Date(form.transactionDate)
+      form.installmentMethod, start
     );
-  }, [form.isInstallment, form.amount, form.interestRate, form.installmentMonths, form.installmentMethod, form.transactionDate, monthsFloat]);
+  }, [
+    form.isInstallment, form.amount, form.interestRate, form.installmentMonths,
+    form.installmentMethod, form.installmentFrequency, form.biMonthlyDay1,
+    form.biMonthlyDay2, form.transactionDate, monthsFloat, isBiMonthly,
+  ]);
 
   const installmentTotal = installmentSchedule.reduce((s, r) => s + r.totalAmount, 0);
   const simpleTotal = form.amount
     ? computeEndAmount(Number(form.amount), Number(form.interestRate), form.interestType)
     : 0;
-
   const baseForPenalty = form.isInstallment ? installmentTotal : simpleTotal;
 
   function examplePenalty(): number {
@@ -89,6 +113,10 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       setError("Minimum installment duration is 0.5 months.");
       return;
     }
+    if (isBiMonthly && Number(form.biMonthlyDay1) >= Number(form.biMonthlyDay2)) {
+      setError("First cutoff day must be before the second cutoff day.");
+      return;
+    }
     setLoading(true);
 
     const url    = isEdit ? `/api/transactions/${initial!.id}` : "/api/transactions";
@@ -101,6 +129,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       interestType: form.interestType,
       counterparty: form.counterparty || null,
       counterpartyEmail: form.counterpartyEmail.trim() || null,
+      sendShareLink: form.sendShareLink,
       notes: form.notes || null,
       transactionDate: form.transactionDate,
     };
@@ -110,7 +139,12 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       if (form.isInstallment) {
         payload.installmentMonths = monthsFloat;
         payload.installmentMethod = form.installmentMethod;
+        payload.installmentFrequency = form.installmentFrequency;
         payload.payAtEnd = form.payAtEnd;
+        if (isBiMonthly) {
+          payload.biMonthlyDay1 = Number(form.biMonthlyDay1);
+          payload.biMonthlyDay2 = Number(form.biMonthlyDay2);
+        }
       } else {
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
@@ -118,17 +152,22 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       if (isExistingInstallment) {
         payload.installmentMonths = monthsFloat;
         payload.installmentMethod = form.installmentMethod;
+        payload.installmentFrequency = form.installmentFrequency;
         payload.payAtEnd = form.payAtEnd;
+        if (isBiMonthly) {
+          payload.biMonthlyDay1 = Number(form.biMonthlyDay1);
+          payload.biMonthlyDay2 = Number(form.biMonthlyDay2);
+        }
       } else {
         payload.dueDate = form.noDueDate ? null : form.dueDate;
       }
     }
 
-    payload.penaltyEnabled = form.penaltyEnabled;
-    payload.penaltyGraceDays = form.penaltyEnabled ? (parseInt(form.penaltyGraceDays) || 0) : null;
-    payload.penaltyType = form.penaltyEnabled ? form.penaltyType : null;
-    payload.penaltyAmount = form.penaltyEnabled ? Number(form.penaltyAmount) : null;
-    payload.penaltyFrequency = form.penaltyEnabled ? form.penaltyFrequency : null;
+    payload.penaltyEnabled    = form.penaltyEnabled;
+    payload.penaltyGraceDays  = form.penaltyEnabled ? (parseInt(form.penaltyGraceDays) || 0) : null;
+    payload.penaltyType       = form.penaltyEnabled ? form.penaltyType : null;
+    payload.penaltyAmount     = form.penaltyEnabled ? Number(form.penaltyAmount) : null;
+    payload.penaltyFrequency  = form.penaltyEnabled ? form.penaltyFrequency : null;
 
     const res = await fetch(url, {
       method,
@@ -142,7 +181,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       setError(d.error ?? "Something went wrong");
       return;
     }
-
     const tx = await res.json();
     onSaved(tx);
     onClose();
@@ -208,7 +246,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               <div>
                 <p className="text-sm font-medium text-purple-900">Installment plan</p>
                 <p className="text-xs text-purple-600 mt-0.5">
-                  {isExistingInstallment ? "Enabled — update duration and rate below" : "Split into periodic payments"}
+                  {isExistingInstallment ? "Enabled — update settings below" : "Split into periodic payments"}
                 </p>
               </div>
               <button
@@ -229,6 +267,78 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
           {/* Installment options */}
           {form.isInstallment && (
             <div className="space-y-3 bg-purple-50/50 rounded-xl p-4 border border-purple-100">
+
+              {/* ── Payment frequency — MONTHLY vs TWICE_MONTHLY ── */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Payment frequency</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { value: "MONTHLY",       label: "Monthly",         sub: "One payment per month" },
+                    { value: "TWICE_MONTHLY", label: "Twice a month",   sub: "Split at 2 cutoff dates" },
+                  ] as { value: InstallmentFrequency; label: string; sub: string }[]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={isExistingInstallment}
+                      onClick={() => !isExistingInstallment && setForm({ ...form, installmentFrequency: opt.value })}
+                      className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all text-left ${
+                        form.installmentFrequency === opt.value
+                          ? "bg-purple-600 border-purple-600 text-white"
+                          : "border-gray-200 text-gray-500 hover:border-gray-300"
+                      } ${isExistingInstallment ? "cursor-not-allowed opacity-70" : ""}`}
+                    >
+                      <span className="block font-semibold">{opt.label}</span>
+                      <span className={`block text-xs mt-0.5 ${form.installmentFrequency === opt.value ? "text-purple-100" : "text-gray-400"}`}>
+                        {opt.sub}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Bi-monthly cutoff days ── */}
+              {isBiMonthly && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                    Cutoff days of the month
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">1st cutoff</p>
+                      <select
+                        value={form.biMonthlyDay1}
+                        onChange={(e) => setForm({ ...form, biMonthlyDay1: e.target.value })}
+                        disabled={isExistingInstallment}
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition bg-white disabled:opacity-60"
+                      >
+                        {DAY_OPTIONS.filter((d) => d < Number(form.biMonthlyDay2) || !form.biMonthlyDay2).map((d) => (
+                          <option key={d} value={d}>{d}{d === 15 ? " (mid)" : d >= 28 ? " (end)" : ""}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">2nd cutoff</p>
+                      <select
+                        value={form.biMonthlyDay2}
+                        onChange={(e) => setForm({ ...form, biMonthlyDay2: e.target.value })}
+                        disabled={isExistingInstallment}
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition bg-white disabled:opacity-60"
+                      >
+                        {DAY_OPTIONS.filter((d) => d > Number(form.biMonthlyDay1) || !form.biMonthlyDay1).map((d) => (
+                          <option key={d} value={d}>{d}{d === 30 ? " (end)" : d === 31 ? " (last)" : ""}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-2 px-3 py-2 bg-white rounded-lg border border-purple-100">
+                    <p className="text-xs text-purple-700">
+                      Each monthly payment is split in half — one half due on the <span className="font-semibold">{form.biMonthlyDay1}{ordinal(Number(form.biMonthlyDay1))}</span> and the other on the <span className="font-semibold">{form.biMonthlyDay2}{ordinal(Number(form.biMonthlyDay2))}</span> of each month.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Duration */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Duration (months)</label>
                 <div className="space-y-2">
@@ -253,7 +363,9 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 {monthsFloat >= 0.5 && (
                   <div className="mt-2 px-3 py-2 bg-white rounded-lg border border-purple-100">
                     <p className="text-xs text-purple-700">
-                      {hasFraction ? (
+                      {isBiMonthly ? (
+                        <><span className="font-semibold">{installmentSchedule.length} payments</span> total ({wholeMonths} month{wholeMonths !== 1 ? "s" : ""} × 2 cutoffs{hasFraction ? ` + ${fractionLabel(fraction).toLowerCase()} split` : ""})</>
+                      ) : hasFraction ? (
                         <><span className="font-semibold">{totalPeriods} payments:</span>{" "}
                         {wholeMonths > 0 && `${wholeMonths} full month${wholeMonths > 1 ? "s" : ""}`}
                         {wholeMonths > 0 && hasFraction && " + "}
@@ -266,6 +378,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 )}
               </div>
 
+              {/* Monthly interest rate */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Monthly interest rate (%)</label>
                 <input type="number" min="0" step="0.01" value={form.interestRate}
@@ -274,6 +387,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   placeholder="e.g. 2.4" />
               </div>
 
+              {/* Interest method */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Interest method</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -293,17 +407,21 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 </div>
               </div>
 
-              <div className="flex items-center justify-between py-2.5 px-3 bg-white rounded-xl border border-purple-100">
-                <div>
-                  <p className="text-sm font-medium text-gray-800">Pay at end</p>
-                  <p className="text-xs text-gray-400 mt-0.5">One lump sum on the final due date</p>
+              {/* Pay at end (only for monthly) */}
+              {!isBiMonthly && (
+                <div className="flex items-center justify-between py-2.5 px-3 bg-white rounded-xl border border-purple-100">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">Pay at end</p>
+                    <p className="text-xs text-gray-400 mt-0.5">One lump sum on the final due date</p>
+                  </div>
+                  <button type="button" onClick={() => setForm({ ...form, payAtEnd: !form.payAtEnd })}
+                    className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${form.payAtEnd ? "bg-purple-600" : "bg-gray-200"}`}>
+                    <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${form.payAtEnd ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
                 </div>
-                <button type="button" onClick={() => setForm({ ...form, payAtEnd: !form.payAtEnd })}
-                  className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ${form.payAtEnd ? "bg-purple-600" : "bg-gray-200"}`}>
-                  <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${form.payAtEnd ? "translate-x-6" : "translate-x-1"}`} />
-                </button>
-              </div>
+              )}
 
+              {/* Schedule preview */}
               {installmentSchedule.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -319,21 +437,28 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   {showSchedulePreview && (
                     <div className="bg-white rounded-xl border border-purple-100 overflow-hidden">
                       <div className="grid grid-cols-4 gap-2 px-3 py-2 text-xs font-medium text-gray-400 uppercase border-b border-gray-50">
-                        <span>Period</span><span className="text-right">Principal</span>
-                        <span className="text-right">Interest</span><span className="text-right">Total</span>
+                        <span>{isBiMonthly ? "Payment" : "Period"}</span>
+                        <span className="text-right">Principal</span>
+                        <span className="text-right">Interest</span>
+                        <span className="text-right">Total</span>
                       </div>
-                      <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
+                      <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
                         {installmentSchedule.map((row, idx) => {
-                          const isLastRow = idx === installmentSchedule.length - 1;
-                          const isFractionalRow = isLastRow && hasFraction;
+                          const isLastRow  = idx === installmentSchedule.length - 1;
+                          const isFracRow  = !isBiMonthly && isLastRow && hasFraction;
+                          const isSecond   = isBiMonthly && row.monthNumber % 2 === 0;
                           return (
-                            <div key={row.monthNumber} className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs ${isFractionalRow ? "bg-purple-50/40" : ""}`}>
+                            <div key={row.monthNumber} className={`grid grid-cols-4 gap-2 px-3 py-2 text-xs ${isFracRow ? "bg-purple-50/40" : isSecond ? "bg-purple-50/20" : ""}`}>
                               <span className="text-gray-500">
-                                {isFractionalRow ? fractionLabel(fraction) : row.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                {isBiMonthly
+                                  ? row.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                  : isFracRow
+                                  ? fractionLabel(fraction)
+                                  : row.dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                               </span>
                               <span className="text-right text-gray-700">{formatCurrency(row.principalAmount)}</span>
                               <span className="text-right text-gray-500">{formatCurrency(row.interestAmount)}</span>
-                              <span className={`text-right font-semibold ${isFractionalRow ? "text-purple-700" : "text-gray-900"}`}>
+                              <span className={`text-right font-semibold ${isFracRow || isSecond ? "text-purple-700" : "text-gray-900"}`}>
                                 {formatCurrency(row.totalAmount)}
                               </span>
                             </div>
@@ -351,7 +476,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 </div>
               )}
 
-              {form.payAtEnd && installmentSchedule.length > 0 && (
+              {!isBiMonthly && form.payAtEnd && installmentSchedule.length > 0 && (
                 <div className="bg-purple-100/60 rounded-xl px-3 py-2.5">
                   <p className="text-xs text-purple-800">
                     <span className="font-semibold">Single due date:</span>{" "}
@@ -365,7 +490,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               {isExistingInstallment && (
                 <div className="bg-amber-50 rounded-xl px-3 py-2.5 border border-amber-100">
                   <p className="text-xs text-amber-700">
-                    <span className="font-semibold">Note:</span> Changing duration or rate will reset the payment schedule.
+                    <span className="font-semibold">Note:</span> Changing these settings will reset the payment schedule.
                   </p>
                 </div>
               )}
@@ -411,7 +536,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
               placeholder="e.g. Maria, John, BPI Bank" />
           </div>
 
-          {/* ── Counterparty email — NEW ── */}
+          {/* Counterparty email */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
               Their email <span className="normal-case font-normal text-gray-400">(optional — for notifications)</span>
@@ -429,7 +554,33 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                 placeholder="e.g. maria@gmail.com"
               />
             </div>
-            <p className="text-xs text-gray-400 mt-1">
+
+            {/* ── Send share link toggle — only relevant when email is provided ── */}
+            {form.counterpartyEmail.trim() && (
+              <div className="mt-2 flex items-center justify-between py-2.5 px-3 bg-gray-50 rounded-xl border border-gray-100">
+                <div>
+                  <p className="text-xs font-medium text-gray-700">Include transaction link in email</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {form.sendShareLink
+                      ? "They'll receive a link to view the full transaction details"
+                      : "Email will only include amount and due date"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, sendShareLink: !form.sendShareLink })}
+                  className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-3 ${
+                    form.sendShareLink ? "bg-green-500" : "bg-gray-200"
+                  }`}
+                >
+                  <span className={`inline-block w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ${
+                    form.sendShareLink ? "translate-x-6" : "translate-x-1"
+                  }`} />
+                </button>
+              </div>
+            )}
+
+            <p className="text-xs text-gray-400 mt-1.5">
               They'll be CC'd on all notifications — due dates, overdue alerts, penalties, and payment confirmations.
             </p>
           </div>
@@ -464,13 +615,14 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </div>
           )}
 
-          {/* Installment first payment info */}
+          {/* First payment info */}
           {form.isInstallment && !form.payAtEnd && installmentSchedule.length > 0 && (
             <div className="bg-purple-50 rounded-xl px-4 py-3">
               <p className="text-xs text-purple-700">
                 <span className="font-semibold">First payment</span> due{" "}
                 {new Date(installmentSchedule[0].dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
-                {hasFraction && <> Last payment is a <span className="font-semibold">{fractionLabel(fraction).toLowerCase()}</span>.</>}
+                {isBiMonthly && <> Payments split on the <span className="font-semibold">{form.biMonthlyDay1}{ordinal(Number(form.biMonthlyDay1))}</span> and <span className="font-semibold">{form.biMonthlyDay2}{ordinal(Number(form.biMonthlyDay2))}</span> of each month.</>}
+                {!isBiMonthly && hasFraction && <> Last payment is a <span className="font-semibold">{fractionLabel(fraction).toLowerCase()}</span>.</>}
               </p>
             </div>
           )}
@@ -544,9 +696,9 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                     ))}
                   </div>
                   <p className="text-xs text-gray-400 mt-2">
-                    {form.penaltyFrequency === "ONCE" && "Penalty applies once regardless of how long overdue."}
-                    {form.penaltyFrequency === "DAILY" && "Penalty compounds every day past the grace period."}
-                    {form.penaltyFrequency === "WEEKLY" && "Penalty compounds every 7 days past the grace period."}
+                    {form.penaltyFrequency === "ONCE"    && "Penalty applies once regardless of how long overdue."}
+                    {form.penaltyFrequency === "DAILY"   && "Penalty compounds every day past the grace period."}
+                    {form.penaltyFrequency === "WEEKLY"  && "Penalty compounds every 7 days past the grace period."}
                     {form.penaltyFrequency === "MONTHLY" && "Penalty compounds every 30 days past the grace period."}
                   </p>
                 </div>
@@ -603,4 +755,10 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       </div>
     </div>
   );
+}
+
+function ordinal(n: number): string {
+  const s = ["th","st","nd","rd"];
+  const v = n % 100;
+  return s[(v - 20) % 10] ?? s[v] ?? s[0];
 }

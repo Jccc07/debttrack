@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { computeEndAmount, computeInstallments } from "@/lib/utils";
+import { computeEndAmount, computeInstallments, computeInstallmentsBiMonthly } from "@/lib/utils";
 import { sendTransactionCreated, sendPaymentConfirmation } from "@/lib/mailer";
 
 async function getOwned(id: string, userId: string) {
@@ -38,28 +38,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const body = await req.json();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://debttrack-chi.vercel.app";
+  const sendShareLink = body.sendShareLink !== false; // default true
 
-  // Determine if counterpartyEmail is being added for the first time
   const addingCounterpartyEmail =
-    body.counterpartyEmail &&
-    !existing.counterpartyEmail &&
+    body.counterpartyEmail && !existing.counterpartyEmail &&
     body.counterpartyEmail !== existing.counterpartyEmail;
 
-  // Determine if status is being flipped to PAID
   const beingMarkedPaid = body.status === "PAID" && existing.status !== "PAID";
 
   // ── Installment update ──
   if (existing.isInstallment) {
-    const newMonths   = body.installmentMonths !== undefined ? Number(body.installmentMonths) : Number(existing.installmentMonths);
-    const newRate     = body.interestRate !== undefined ? Number(body.interestRate) : Number(existing.interestRate);
-    const newMethod   = body.installmentMethod ?? existing.installmentMethod;
-    const newAmount   = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
-    const newPayAtEnd = body.payAtEnd !== undefined ? body.payAtEnd : existing.payAtEnd;
-    const txDate      = body.transactionDate ? new Date(body.transactionDate) : new Date(existing.transactionDate);
+    const newMonths    = body.installmentMonths !== undefined ? Number(body.installmentMonths) : Number(existing.installmentMonths);
+    const newRate      = body.interestRate !== undefined ? Number(body.interestRate) : Number(existing.interestRate);
+    const newMethod    = body.installmentMethod ?? existing.installmentMethod;
+    const newAmount    = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
+    const newPayAtEnd  = body.payAtEnd !== undefined ? body.payAtEnd : existing.payAtEnd;
+    const txDate       = body.transactionDate ? new Date(body.transactionDate) : new Date(existing.transactionDate);
+    const newFrequency = body.installmentFrequency ?? existing.installmentFrequency ?? "MONTHLY";
+    const newDay1      = body.biMonthlyDay1 !== undefined ? Number(body.biMonthlyDay1) : (existing.biMonthlyDay1 ?? 15);
+    const newDay2      = body.biMonthlyDay2 !== undefined ? Number(body.biMonthlyDay2) : (existing.biMonthlyDay2 ?? 30);
+    const isBiMonthly  = newFrequency === "TWICE_MONTHLY";
 
-    const installmentRows = computeInstallments(newAmount, newRate, newMonths, newMethod as "FLAT" | "REDUCING", txDate);
-    const newEndAmount    = Math.round(installmentRows.reduce((sum, r) => sum + r.totalAmount, 0) * 100) / 100;
-    const newDueDate      = installmentRows[installmentRows.length - 1].dueDate;
+    const installmentRows = isBiMonthly
+      ? computeInstallmentsBiMonthly(newAmount, newRate, newMonths, newMethod as "FLAT" | "REDUCING", txDate, newDay1, newDay2)
+      : computeInstallments(newAmount, newRate, newMonths, newMethod as "FLAT" | "REDUCING", txDate);
+
+    const newEndAmount = Math.round(installmentRows.reduce((sum, r) => sum + r.totalAmount, 0) * 100) / 100;
+    const newDueDate   = installmentRows[installmentRows.length - 1].dueDate;
 
     const updated = await prisma.$transaction(async (tx) => {
       await tx.installment.deleteMany({ where: { transactionId: id } });
@@ -74,7 +79,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           status: "UNPAID",
         })),
       });
-
       return tx.transaction.update({
         where: { id },
         data: {
@@ -86,6 +90,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           amount: newAmount, interestRate: newRate,
           installmentMonths: newMonths, installmentMethod: newMethod,
           payAtEnd: newPayAtEnd, endAmount: newEndAmount, dueDate: newDueDate,
+          installmentFrequency: newFrequency,
+          biMonthlyDay1: isBiMonthly ? newDay1 : null,
+          biMonthlyDay2: isBiMonthly ? newDay2 : null,
           status: "UNPAID", paidAt: null,
           ...(body.penaltyEnabled   !== undefined && { penaltyEnabled: body.penaltyEnabled }),
           ...(body.penaltyGraceDays !== undefined && { penaltyGraceDays: body.penaltyGraceDays }),
@@ -100,38 +107,36 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       });
     });
 
-    // Fire notification if counterpartyEmail newly added
     if (addingCounterpartyEmail && existing.shareToken) {
-      const shareUrl = `${appUrl}/share/${existing.shareToken}`;
+      const shareUrl = sendShareLink ? `${appUrl}/share/${existing.shareToken}` : null;
+      const pen = updated.penaltyEnabled && updated.penaltyGraceDays != null && updated.penaltyType && updated.penaltyAmount && updated.penaltyFrequency
+        ? { graceDays: updated.penaltyGraceDays, penaltyType: updated.penaltyType as any, penaltyAmount: Number(updated.penaltyAmount), penaltyFrequency: updated.penaltyFrequency as any, baseAmount: newEndAmount }
+        : null;
       sendTransactionCreated({
         to: (existing as any).user.email,
         counterpartyEmail: body.counterpartyEmail,
         ownerName: (existing as any).user.name,
         counterparty: updated.counterparty ?? "Unknown",
-        amount: newEndAmount,
-        type: updated.type,
-        transactionId: id,
-        dueDate: newDueDate,
-        shareUrl,
+        amount: newEndAmount, type: updated.type, transactionId: id,
+        dueDate: newDueDate, shareUrl, penaltyRule: pen,
       }).catch((err) => console.error("[send-counterparty-added]", err));
     }
 
     return NextResponse.json(updated);
   }
 
-  // ── Regular transaction update ──
+  // ── Regular update ──
   let endAmount = existing.endAmount;
   if (body.amount !== undefined || body.interestRate !== undefined || body.interestType) {
-    const amount = Number(body.amount ?? existing.amount);
-    const rate   = Number(body.interestRate ?? existing.interestRate);
-    const iType  = body.interestType ?? existing.interestType;
-    endAmount = computeEndAmount(amount, rate, iType as "PERCENT" | "FLAT") as any;
+    endAmount = computeEndAmount(
+      Number(body.amount ?? existing.amount),
+      Number(body.interestRate ?? existing.interestRate),
+      (body.interestType ?? existing.interestType) as "PERCENT" | "FLAT"
+    ) as any;
   }
 
   let dueDateUpdate: Date | null | undefined = undefined;
-  if ("dueDate" in body) {
-    dueDateUpdate = body.dueDate ? new Date(body.dueDate) : null;
-  }
+  if ("dueDate" in body) dueDateUpdate = body.dueDate ? new Date(body.dueDate) : null;
 
   const paidAt = beingMarkedPaid ? new Date() : undefined;
 
@@ -149,7 +154,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(body.transactionDate               && { transactionDate: new Date(body.transactionDate) }),
       ...(dueDateUpdate !== undefined        && { dueDate: dueDateUpdate }),
       endAmount,
-      ...(beingMarkedPaid                    ? { paidAt: paidAt! } : {}),
+      ...(beingMarkedPaid                      ? { paidAt: paidAt! } : {}),
       ...(body.status && body.status !== "PAID" ? { paidAt: null } : {}),
       ...(body.penaltyEnabled   !== undefined && { penaltyEnabled: body.penaltyEnabled }),
       ...(body.penaltyGraceDays !== undefined && { penaltyGraceDays: body.penaltyGraceDays }),
@@ -163,37 +168,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     },
   });
 
-  // Fire emails after update (non-blocking)
-
-  // Counterparty email newly added — send transaction details + share link
   if (addingCounterpartyEmail && existing.shareToken) {
-    const shareUrl = `${appUrl}/share/${existing.shareToken}`;
+    const shareUrl = sendShareLink ? `${appUrl}/share/${existing.shareToken}` : null;
+    const pen = updated.penaltyEnabled && updated.penaltyGraceDays != null && updated.penaltyType && updated.penaltyAmount && updated.penaltyFrequency
+      ? { graceDays: updated.penaltyGraceDays, penaltyType: updated.penaltyType as any, penaltyAmount: Number(updated.penaltyAmount), penaltyFrequency: updated.penaltyFrequency as any, baseAmount: Number(endAmount) }
+      : null;
     sendTransactionCreated({
       to: (existing as any).user.email,
       counterpartyEmail: body.counterpartyEmail,
       ownerName: (existing as any).user.name,
       counterparty: updated.counterparty ?? "Unknown",
-      amount: Number(endAmount),
-      type: updated.type,
-      transactionId: id,
-      dueDate: updated.dueDate ?? null,
-      shareUrl,
+      amount: Number(endAmount), type: updated.type, transactionId: id,
+      dueDate: updated.dueDate ?? null, shareUrl, penaltyRule: pen,
     }).catch((err) => console.error("[send-counterparty-added]", err));
   }
 
-  // Marked as paid
   if (beingMarkedPaid && paidAt) {
-    const shareUrl = existing.shareToken ? `${appUrl}/share/${existing.shareToken}` : null;
+    const shareUrl = sendShareLink && existing.shareToken ? `${appUrl}/share/${existing.shareToken}` : null;
     sendPaymentConfirmation({
       to: (existing as any).user.email,
       counterpartyEmail: existing.counterpartyEmail ?? null,
       ownerName: (existing as any).user.name,
       counterparty: existing.counterparty ?? "Unknown",
-      amount: Number(endAmount),
-      type: existing.type,
-      transactionId: id,
-      paidAt,
-      shareUrl,
+      amount: Number(endAmount), type: existing.type, transactionId: id,
+      paidAt, shareUrl,
     }).catch((err) => console.error("[send-paid]", err));
   }
 

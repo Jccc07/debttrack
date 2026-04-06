@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { computeEndAmount, computeInstallments } from "@/lib/utils";
+import { computeEndAmount, computeInstallments, computeInstallmentsBiMonthly } from "@/lib/utils";
 import { sendTransactionCreated } from "@/lib/mailer";
 import { randomBytes } from "crypto";
 
@@ -59,10 +59,14 @@ export async function POST(req: NextRequest) {
       type, amount, interestRate = 0, interestType = "PERCENT",
       counterparty, counterpartyEmail, notes, transactionDate, dueDate,
       isInstallment = false, installmentMonths, installmentMethod,
-      installmentIntervalDays = 30,
-      payAtEnd = false,
-      penaltyEnabled = false,
-      penaltyGraceDays, penaltyType, penaltyAmount, penaltyFrequency,
+      installmentIntervalDays = 30, payAtEnd = false,
+      // Bi-monthly
+      installmentFrequency = "MONTHLY",
+      biMonthlyDay1, biMonthlyDay2,
+      // Penalty
+      penaltyEnabled = false, penaltyGraceDays, penaltyType, penaltyAmount, penaltyFrequency,
+      // Email preference
+      sendShareLink = true,
     } = body;
 
     if (!type || !amount || !transactionDate) {
@@ -71,16 +75,26 @@ export async function POST(req: NextRequest) {
 
     const txDate = new Date(transactionDate);
     const intervalDays = Number(installmentIntervalDays) || 30;
+    const isBiMonthly = isInstallment && installmentFrequency === "TWICE_MONTHLY";
 
     let endAmount: number;
     let txDueDate: Date | null;
     let installmentRows: ReturnType<typeof computeInstallments> = [];
 
     if (isInstallment && installmentMonths && installmentMethod) {
-      installmentRows = computeInstallments(
-        Number(amount), Number(interestRate), Number(installmentMonths),
-        installmentMethod, txDate, intervalDays
-      );
+      if (isBiMonthly) {
+        const d1 = Number(biMonthlyDay1) || 15;
+        const d2 = Number(biMonthlyDay2) || 30;
+        installmentRows = computeInstallmentsBiMonthly(
+          Number(amount), Number(interestRate), Number(installmentMonths),
+          installmentMethod, txDate, d1, d2
+        );
+      } else {
+        installmentRows = computeInstallments(
+          Number(amount), Number(interestRate), Number(installmentMonths),
+          installmentMethod, txDate, intervalDays
+        );
+      }
       endAmount = Math.round(installmentRows.reduce((sum, r) => sum + r.totalAmount, 0) * 100) / 100;
       txDueDate = installmentRows[installmentRows.length - 1].dueDate;
     } else {
@@ -88,7 +102,6 @@ export async function POST(req: NextRequest) {
       txDueDate = dueDate ? new Date(dueDate) : null;
     }
 
-    // Always generate a non-expiring share token on creation
     const shareToken = randomBytes(32).toString("hex");
 
     const transaction = await prisma.$transaction(async (tx) => {
@@ -107,13 +120,16 @@ export async function POST(req: NextRequest) {
           installmentMethod: isInstallment ? installmentMethod : null,
           installmentIntervalDays: isInstallment ? intervalDays : null,
           payAtEnd: isInstallment ? payAtEnd : false,
+          installmentFrequency: isInstallment ? installmentFrequency : null,
+          biMonthlyDay1: isBiMonthly ? (Number(biMonthlyDay1) || 15) : null,
+          biMonthlyDay2: isBiMonthly ? (Number(biMonthlyDay2) || 30) : null,
           penaltyEnabled,
           penaltyGraceDays: penaltyEnabled ? (penaltyGraceDays ?? null) : null,
           penaltyType: penaltyEnabled ? (penaltyType ?? null) : null,
           penaltyAmount: penaltyEnabled ? (penaltyAmount ?? null) : null,
           penaltyFrequency: penaltyEnabled ? (penaltyFrequency ?? null) : null,
           shareToken,
-          shareExpiresAt: null, // no expiry — permanent share link
+          shareExpiresAt: null,
         },
       });
 
@@ -143,8 +159,15 @@ export async function POST(req: NextRequest) {
 
     if (!transaction) throw new Error("Transaction creation failed");
 
-    // Send creation email (fire and forget — don't block the response)
-    const shareUrl = `${process.env.NEXT_PUBLIC_APP_URL}/share/${shareToken}`;
+    // Send creation email (fire and forget)
+    const shareUrl = sendShareLink
+      ? `${process.env.NEXT_PUBLIC_APP_URL}/share/${shareToken}`
+      : null;
+
+    const penaltyRule = penaltyEnabled && penaltyGraceDays != null && penaltyType && penaltyAmount && penaltyFrequency
+      ? { graceDays: Number(penaltyGraceDays), penaltyType, penaltyAmount: Number(penaltyAmount), penaltyFrequency, baseAmount: endAmount }
+      : null;
+
     sendTransactionCreated({
       to: (transaction as any).user.email,
       counterpartyEmail: counterpartyEmail || null,
@@ -155,9 +178,9 @@ export async function POST(req: NextRequest) {
       transactionId: transaction.id,
       dueDate: txDueDate,
       shareUrl,
+      penaltyRule,
     }).catch((err) => console.error("[send-created]", err));
 
-    // Strip user from response
     const { user: _user, ...txData } = transaction as any;
     return NextResponse.json(txData, { status: 201 });
   } catch (err) {

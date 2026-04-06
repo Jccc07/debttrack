@@ -66,7 +66,7 @@ model Transaction {
   interestType    String        @default("PERCENT")
   endAmount       Decimal       @db.Decimal(12, 2)
   counterparty    String?
-  counterpartyEmail String?     // ← NEW: other party's email for notifications
+  counterpartyEmail String?
   notes           String?
   transactionDate DateTime
   dueDate         DateTime?
@@ -78,6 +78,10 @@ model Transaction {
   installmentMethod       String?
   installmentIntervalDays Int?
   payAtEnd                Boolean      @default(false)
+  // ← NEW: bi-monthly support
+  installmentFrequency    String?      // "MONTHLY" | "TWICE_MONTHLY"
+  biMonthlyDay1           Int?         // e.g. 15  (first cutoff day of month)
+  biMonthlyDay2           Int?         // e.g. 30  (second cutoff day of month)
   // Penalty rule fields
   penaltyEnabled    Boolean   @default(false)
   penaltyGraceDays  Int?
