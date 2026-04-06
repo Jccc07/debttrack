@@ -23,6 +23,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     interestRate: String(initial?.interestRate ?? "0"),
     interestType: (initial?.interestType ?? "PERCENT") as InterestType,
     counterparty: initial?.counterparty ?? "",
+    counterpartyEmail: initial?.counterpartyEmail ?? "",
     notes: initial?.notes ?? "",
     transactionDate: initial?.transactionDate
       ? new Date(initial.transactionDate).toISOString().split("T")[0]
@@ -35,7 +36,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     installmentMonths: String(initial?.installmentMonths ?? "3"),
     installmentMethod: (initial?.installmentMethod ?? "FLAT") as InstallmentMethod,
     payAtEnd: initial?.payAtEnd ?? false,
-    // Penalty — read from initial correctly
     penaltyEnabled: initial?.penaltyEnabled ?? false,
     penaltyGraceDays: String(initial?.penaltyGraceDays ?? "3"),
     penaltyType: (initial?.penaltyType ?? "PERCENT") as PenaltyType,
@@ -56,11 +56,8 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
   const installmentSchedule = useMemo(() => {
     if (!form.isInstallment || !form.amount || monthsFloat < 0.5) return [];
     return computeInstallments(
-      Number(form.amount),
-      Number(form.interestRate),
-      monthsFloat,
-      form.installmentMethod,
-      new Date(form.transactionDate)
+      Number(form.amount), Number(form.interestRate), monthsFloat,
+      form.installmentMethod, new Date(form.transactionDate)
     );
   }, [form.isInstallment, form.amount, form.interestRate, form.installmentMonths, form.installmentMethod, form.transactionDate, monthsFloat]);
 
@@ -69,10 +66,8 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
     ? computeEndAmount(Number(form.amount), Number(form.interestRate), form.interestType)
     : 0;
 
-  // Base amount for penalty calculation
   const baseForPenalty = form.isInstallment ? installmentTotal : simpleTotal;
 
-  // Compute example penalty (30 days overdue)
   function examplePenalty(): number {
     const grace = Number(form.penaltyGraceDays) || 0;
     const daysAfterGrace = Math.max(0, 30 - grace);
@@ -105,6 +100,7 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       interestRate: Number(form.interestRate),
       interestType: form.interestType,
       counterparty: form.counterparty || null,
+      counterpartyEmail: form.counterpartyEmail.trim() || null,
       notes: form.notes || null,
       transactionDate: form.transactionDate,
     };
@@ -128,7 +124,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
       }
     }
 
-    // Always send penalty fields
     payload.penaltyEnabled = form.penaltyEnabled;
     payload.penaltyGraceDays = form.penaltyEnabled ? (parseInt(form.penaltyGraceDays) || 0) : null;
     payload.penaltyType = form.penaltyEnabled ? form.penaltyType : null;
@@ -324,10 +319,8 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   {showSchedulePreview && (
                     <div className="bg-white rounded-xl border border-purple-100 overflow-hidden">
                       <div className="grid grid-cols-4 gap-2 px-3 py-2 text-xs font-medium text-gray-400 uppercase border-b border-gray-50">
-                        <span>Period</span>
-                        <span className="text-right">Principal</span>
-                        <span className="text-right">Interest</span>
-                        <span className="text-right">Total</span>
+                        <span>Period</span><span className="text-right">Principal</span>
+                        <span className="text-right">Interest</span><span className="text-right">Total</span>
                       </div>
                       <div className="max-h-52 overflow-y-auto divide-y divide-gray-50">
                         {installmentSchedule.map((row, idx) => {
@@ -409,13 +402,36 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
             </>
           )}
 
-          {/* Counterparty */}
+          {/* Counterparty name */}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Person / Company</label>
             <input type="text" value={form.counterparty}
               onChange={(e) => setForm({ ...form, counterparty: e.target.value })}
               className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
               placeholder="e.g. Maria, John, BPI Bank" />
+          </div>
+
+          {/* ── Counterparty email — NEW ── */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              Their email <span className="normal-case font-normal text-gray-400">(optional — for notifications)</span>
+            </label>
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="3" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+                <path d="M1 4l6 4 6-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              </svg>
+              <input
+                type="email"
+                value={form.counterpartyEmail}
+                onChange={(e) => setForm({ ...form, counterpartyEmail: e.target.value })}
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition"
+                placeholder="e.g. maria@gmail.com"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              They'll be CC'd on all notifications — due dates, overdue alerts, penalties, and payment confirmations.
+            </p>
           </div>
 
           {/* Transaction date */}
@@ -483,7 +499,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
 
             {form.penaltyEnabled && (
               <div className="mt-3 space-y-3 bg-orange-50/50 rounded-xl p-4 border border-orange-100">
-                {/* Grace days */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
                     Grace period (days after due date)
@@ -495,7 +510,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   <p className="text-xs text-gray-400 mt-1">Penalty only applies after this many days past due</p>
                 </div>
 
-                {/* Penalty amount + type */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Penalty amount</label>
@@ -515,7 +529,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   </div>
                 </div>
 
-                {/* Frequency */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Frequency</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -538,7 +551,6 @@ export default function TransactionForm({ onClose, onSaved, initial }: Transacti
                   </p>
                 </div>
 
-                {/* Preview with exact amounts */}
                 {form.penaltyAmount && form.amount && Number(form.amount) > 0 && (
                   <div className="bg-white rounded-xl px-3 py-2.5 border border-orange-100 space-y-1.5">
                     <p className="text-xs font-semibold text-orange-700">Rule summary</p>

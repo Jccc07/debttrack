@@ -29,7 +29,7 @@ export async function GET() {
   try {
     await sendDueDateReminder({
       to: session.user.email,
-      name: session.user.name ?? "there",
+      ownerName: session.user.name ?? "there",
       counterparty: "Test Person",
       dueDate: new Date(),
       amount: 1234.56,

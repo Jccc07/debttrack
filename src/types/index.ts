@@ -40,6 +40,7 @@ export interface Transaction {
   interestType: InterestType;
   endAmount: number | string;
   counterparty: string | null;
+  counterpartyEmail: string | null;  // ← NEW
   notes: string | null;
   transactionDate: string | Date;
   dueDate: string | Date | null;
