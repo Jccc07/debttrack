@@ -119,6 +119,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         counterparty: updated.counterparty ?? "Unknown",
         amount: newEndAmount, type: updated.type, transactionId: id,
         dueDate: newDueDate, shareUrl, penaltyRule: pen,
+        // ✅ Fix: added missing CreatedParams fields
+        principalAmount: newAmount,
+        interestRate: newRate,
+        interestType: updated.interestType ?? "PERCENT",
+        paymentMethod: newMethod ?? "STRAIGHT",
+        isInstallment: true,
+        installmentMonths: newMonths,
       }).catch((err) => console.error("[send-counterparty-added]", err));
     }
 
@@ -180,6 +187,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       counterparty: updated.counterparty ?? "Unknown",
       amount: Number(endAmount), type: updated.type, transactionId: id,
       dueDate: updated.dueDate ?? null, shareUrl, penaltyRule: pen,
+      principalAmount: Number(existing.amount),
+      interestRate: Number(updated.interestRate),
+      interestType: updated.interestType ?? "PERCENT",
+      paymentMethod: (updated.installmentMethod as string) ?? "STRAIGHT",
+      isInstallment: false,
     }).catch((err) => console.error("[send-counterparty-added]", err));
   }
 
