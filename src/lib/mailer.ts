@@ -1,25 +1,23 @@
 // src/lib/mailer.ts
-import nodemailer from "nodemailer";
-import type SMTPTransport from "nodemailer/lib/smtp-transport";
+import { Resend } from "resend";
 
-function createTransporter() {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) throw new Error(`Gmail credentials missing. GMAIL_USER=${!!user} GMAIL_APP_PASSWORD=${!!pass}`);
-  const options: SMTPTransport.Options = {
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: { user, pass },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-  };
-  return nodemailer.createTransport(options);
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM = process.env.RESEND_FROM ?? "DebtTrack <onboarding@resend.dev>";
 
-export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
-  try { await createTransporter().verify(); return { ok: true }; }
-  catch (err: any) { return { ok: false, error: err?.message ?? String(err) }; }
+async function sendMail(options: {
+  to: string;
+  cc?: string;
+  subject: string;
+  html: string;
+}) {
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: options.to,
+    ...(options.cc ? { cc: [options.cc] } : {}),
+    subject: options.subject,
+    html: options.html,
+  });
+  if (error) throw new Error(`Resend error: ${(error as any)?.message ?? JSON.stringify(error)}`);
 }
 
 const appUrl = () => process.env.NEXT_PUBLIC_APP_URL ?? "https://debttrack-chi.vercel.app";
@@ -36,13 +34,13 @@ function fmt(amount: number) {
   return "₱" + Number(amount).toFixed(2);
 }
 
-// ─── Penalty warning block (shown in all emails when penalty rule is set) ────
+// ─── Penalty warning block ────────────────────────────────────────────────────
 interface PenaltyRule {
   graceDays: number;
   penaltyType: "PERCENT" | "FLAT";
   penaltyAmount: number;
   penaltyFrequency: "ONCE" | "DAILY" | "WEEKLY" | "MONTHLY";
-  baseAmount: number; // endAmount for computing the peso value
+  baseAmount: number;
 }
 
 function penaltyWarningBlock(rule: PenaltyRule | null | undefined): string {
@@ -86,7 +84,7 @@ interface BaseParams {
   amount: number;
   type: string;
   transactionId: string;
-  shareUrl?: string | null;       // only included if sendShareLink = true
+  shareUrl?: string | null;
   penaltyRule?: PenaltyRule | null;
 }
 
@@ -97,15 +95,14 @@ interface PaidParams     extends BaseParams { paidAt: Date; }
 interface CreatedParams  extends BaseParams { dueDate: Date | null; }
 
 function recipients(to: string, cc?: string | null) {
-  return { to, ...(cc ? { cc } : {}) };
+  return { to, cc: cc ?? undefined };
 }
 
 // ─── 1. Transaction created ───────────────────────────────────────────────────
 export async function sendTransactionCreated(params: CreatedParams) {
   const { to, counterpartyEmail, ownerName, counterparty, amount, type, transactionId, dueDate, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "to" : "from";
-  await createTransporter().sendMail({
-    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
+  await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `Transaction recorded: ${verb} ${counterparty}`,
     html: `
@@ -132,8 +129,7 @@ export async function sendTransactionCreated(params: CreatedParams) {
 export async function sendDueDateReminder(params: DueDateParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, type, transactionId, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "from" : "to";
-  await createTransporter().sendMail({
-    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
+  await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `Reminder: Payment due ${dueDate.toLocaleDateString("en-PH")}`,
     html: `
@@ -160,8 +156,7 @@ export async function sendDueDateReminder(params: DueDateParams) {
 export async function sendDueToday(params: DueDateParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, type, transactionId, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "from" : "to";
-  await createTransporter().sendMail({
-    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
+  await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `Payment due today: ${counterparty}`,
     html: `
@@ -188,8 +183,7 @@ export async function sendDueToday(params: DueDateParams) {
 export async function sendOverdueAlert(params: OverdueParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, type, transactionId, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "from" : "to";
-  await createTransporter().sendMail({
-    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
+  await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `⚠️ Overdue Payment: ${counterparty}`,
     html: `
@@ -216,8 +210,7 @@ export async function sendOverdueAlert(params: OverdueParams) {
 export async function sendPenaltyAlert(params: PenaltyParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, penaltyAmount, totalDue, type, transactionId, shareUrl } = params;
   const verb = type === "LEND" ? "from" : "to";
-  await createTransporter().sendMail({
-    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
+  await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `🔥 Penalty applied: ${counterparty}`,
     html: `
@@ -253,8 +246,7 @@ export async function sendPenaltyAlert(params: PenaltyParams) {
 export async function sendPaymentConfirmation(params: PaidParams) {
   const { to, counterpartyEmail, ownerName, counterparty, amount, type, transactionId, paidAt, shareUrl } = params;
   const verb = type === "LEND" ? "from" : "to";
-  await createTransporter().sendMail({
-    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
+  await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `✅ Payment marked as paid: ${counterparty}`,
     html: `
