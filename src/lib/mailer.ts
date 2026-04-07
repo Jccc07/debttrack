@@ -75,6 +75,58 @@ function shareLinkBlock(shareUrl: string | null | undefined, counterparty: strin
     </div>`;
 }
 
+// ─── Transaction details block (used in created email) ────────────────────────
+interface TransactionDetailProps {
+  principalAmount: number;
+  totalAmount: number;
+  type: string;
+  interestRate: number;
+  interestType: string;
+  paymentMethod: string;
+  isInstallment: boolean;
+  installmentMonths?: number | null;
+}
+
+function transactionDetailsBlock(p: TransactionDetailProps): string {
+  const typeLabel = p.type === "LEND" ? "Lent (Money Out)" : "Borrowed (Money In)";
+
+  const interestLabel = Number(p.interestRate) === 0
+    ? "No interest"
+    : p.interestType === "PERCENT"
+      ? `${Number(p.interestRate)}%`
+      : `₱${Number(p.interestRate).toFixed(2)} flat`;
+
+  const methodLabel = p.isInstallment
+    ? `Installment${p.installmentMonths ? ` (${p.installmentMonths} months)` : ""}`
+    : p.paymentMethod === "STRAIGHT"
+      ? "Straight (lump sum)"
+      : p.paymentMethod === "DIMINISHING"
+        ? "Diminishing balance"
+        : p.paymentMethod || "—";
+
+  const rows: [string, string][] = [
+    ["Transaction type",  typeLabel],
+    ["Principal amount",  fmt(p.principalAmount)],
+    ["Interest rate",     interestLabel],
+    ["Payment method",    methodLabel],
+    ["Total amount due",  fmt(p.totalAmount)],
+  ];
+
+  const rowsHtml = rows.map(([label, value], i) => `
+    <tr>
+      <td style="padding:9px 0;font-size:13px;color:#6b7280;${i > 0 ? "border-top:1px solid #e5e7eb;" : ""}">${label}</td>
+      <td style="padding:9px 0;font-size:13px;font-weight:600;color:#111827;text-align:right;${i > 0 ? "border-top:1px solid #e5e7eb;" : ""}">${value}</td>
+    </tr>`).join("");
+
+  return `
+    <div style="background:#f9fafb;border-radius:8px;padding:16px;margin:20px 0;border:1px solid #e5e7eb;">
+      <p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.07em;">Transaction Details</p>
+      <table style="width:100%;border-collapse:collapse;">
+        ${rowsHtml}
+      </table>
+    </div>`;
+}
+
 // ─── Shared params ────────────────────────────────────────────────────────────
 interface BaseParams {
   to: string;
@@ -92,7 +144,15 @@ interface DueDateParams extends BaseParams { dueDate: Date; }
 interface OverdueParams  extends BaseParams { dueDate: Date; }
 interface PenaltyParams  extends BaseParams { dueDate: Date; penaltyAmount: number; totalDue: number; }
 interface PaidParams     extends BaseParams { paidAt: Date; }
-interface CreatedParams  extends BaseParams { dueDate: Date | null; }
+interface CreatedParams  extends BaseParams {
+  dueDate: Date | null;
+  principalAmount: number;
+  interestRate: number;
+  interestType: string;
+  paymentMethod: string;
+  isInstallment: boolean;
+  installmentMonths?: number | null;
+}
 
 function recipients(to: string, cc?: string | null) {
   return { to, cc: cc ?? undefined };
@@ -100,8 +160,13 @@ function recipients(to: string, cc?: string | null) {
 
 // ─── 1. Transaction created ───────────────────────────────────────────────────
 export async function sendTransactionCreated(params: CreatedParams) {
-  const { to, counterpartyEmail, ownerName, counterparty, amount, type, transactionId, dueDate, shareUrl, penaltyRule } = params;
+  const {
+    to, counterpartyEmail, ownerName, counterparty, amount, type, transactionId,
+    dueDate, shareUrl, penaltyRule,
+    principalAmount, interestRate, interestType, paymentMethod, isInstallment, installmentMonths,
+  } = params;
   const verb = type === "LEND" ? "to" : "from";
+
   await sendMail({
     ...recipients(to, counterpartyEmail),
     subject: `Transaction recorded: ${verb} ${counterparty}`,
@@ -112,11 +177,8 @@ export async function sendTransactionCreated(params: CreatedParams) {
           <p style="margin:0;color:#666;font-size:14px;">DebtTrack</p>
         </div>
         <p>Hi <strong>${ownerName}</strong>,</p>
-        <p>A new transaction has been recorded — <strong>${fmt(amount)}</strong> ${verb} <strong>${counterparty}</strong>${dueDate ? ` due on <strong>${dueDate.toLocaleDateString("en-US",{year:"numeric",month:"long",day:"numeric"})}</strong>` : ""}.</p>
-        <div style="background:#f9fafb;border-radius:8px;padding:16px;margin:20px 0;">
-          <p style="margin:0;font-size:24px;font-weight:700;color:#16a34a;">${fmt(amount)}</p>
-          <p style="margin:4px 0 0;font-size:13px;color:#666;">Total amount (principal + interest)</p>
-        </div>
+        <p>A new transaction has been recorded — <strong>${fmt(amount)}</strong> ${verb} <strong>${counterparty}</strong>${dueDate ? ` due on <strong>${dueDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</strong>` : ""}.</p>
+        ${transactionDetailsBlock({ principalAmount, totalAmount: amount, type, interestRate, interestType, paymentMethod, isInstallment, installmentMonths })}
         ${penaltyWarningBlock(penaltyRule)}
         ${shareLinkBlock(shareUrl, counterparty)}
         ${viewBtn(`${appUrl()}/dashboard/transactions/${transactionId}`)}

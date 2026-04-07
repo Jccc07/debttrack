@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
 
     if (!transaction) throw new Error("Transaction creation failed");
 
-    // Send creation email (fire and forget)
+    // ─── Send creation email (fire and forget) ────────────────────────────────
     const shareUrl = sendShareLink
       ? `${process.env.NEXT_PUBLIC_APP_URL}/share/${shareToken}`
       : null;
@@ -167,6 +167,13 @@ export async function POST(req: NextRequest) {
     const penaltyRule = penaltyEnabled && penaltyGraceDays != null && penaltyType && penaltyAmount && penaltyFrequency
       ? { graceDays: Number(penaltyGraceDays), penaltyType, penaltyAmount: Number(penaltyAmount), penaltyFrequency, baseAmount: endAmount }
       : null;
+
+    // Determine payment method label for the email
+    const paymentMethod = isInstallment
+      ? (installmentMethod ?? "INSTALLMENT")
+      : interestType === "PERCENT"
+        ? "STRAIGHT"
+        : "STRAIGHT";
 
     sendTransactionCreated({
       to: (transaction as any).user.email,
@@ -179,6 +186,13 @@ export async function POST(req: NextRequest) {
       dueDate: txDueDate,
       shareUrl,
       penaltyRule,
+      // New fields
+      principalAmount: Number(amount),
+      interestRate: Number(interestRate),
+      interestType,
+      paymentMethod,
+      isInstallment,
+      installmentMonths: isInstallment ? Number(installmentMonths) : null,
     }).catch((err) => console.error("[send-created]", err));
 
     const { user: _user, ...txData } = transaction as any;
