@@ -17,12 +17,20 @@ interface InstallmentScheduleProps {
   penaltyFrequency?: PenaltyFrequency;
 }
 
+/** Ordinal suffix: 1 → "1st", 2 → "2nd", 3 → "3rd", 4 → "4th" … */
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
+/** "1st Payment", "2nd Payment", … or fractional label for the last prorated period */
 function periodLabel(index: number, total: number, monthsFloat: number): string {
   const wholeMonths = Math.floor(monthsFloat);
   const fraction    = Math.round((monthsFloat - wholeMonths) * 100) / 100;
   const hasFraction = fraction > 0;
   if (hasFraction && index === total) return fractionLabel(fraction);
-  return `Month ${index}`;
+  return `${ordinal(index)} Payment`;
 }
 
 export default function InstallmentSchedule({
@@ -58,20 +66,14 @@ export default function InstallmentSchedule({
     setTogglingId(null);
   }
 
-  // Live penalty for a given installment — computed from rule + current date, no DB offset
   function getLivePenalty(inst: Installment) {
     if (
       !penaltyEnabled || inst.status === "PAID" ||
       penaltyGraceDays === undefined || !penaltyType || !penaltyAmount || !penaltyFrequency
     ) return null;
     return computePenaltyPreview(
-      Number(inst.totalAmount),
-      inst.dueDate,
-      penaltyGraceDays,
-      penaltyType,
-      penaltyAmount,
-      penaltyFrequency,
-      0 // gross computation — always show the full accrued amount
+      Number(inst.totalAmount), inst.dueDate,
+      penaltyGraceDays, penaltyType, penaltyAmount, penaltyFrequency, 0
     );
   }
 
@@ -105,7 +107,7 @@ export default function InstallmentSchedule({
                 const isFrac = isLast && hasFraction;
                 return (
                   <div key={inst.id} className={`flex items-center gap-3 px-3 py-2.5 ${isFrac ? "bg-purple-50/40" : ""}`}>
-                    <div className="flex-shrink-0 w-24">
+                    <div className="flex-shrink-0 w-28">
                       <span className={`text-xs font-semibold ${isFrac ? "text-purple-600" : "text-gray-500"}`}>
                         {label}
                       </span>
@@ -151,16 +153,16 @@ export default function InstallmentSchedule({
       {/* Rows */}
       <div className="space-y-2">
         {installments.map((inst, idx) => {
-          const daysLeft   = getDaysUntilDue(inst.dueDate);
-          const isPaid     = inst.status === "PAID";
-          const isOverdue  = inst.status === "OVERDUE";
-          const toggling   = togglingId === inst.id;
-          const isLast     = idx === totalCount - 1;
-          const isFrac     = isLast && hasFraction;
-          const label      = periodLabel(idx + 1, totalCount, resolvedMonths);
-          const livePenalty = getLivePenalty(inst);
+          const daysLeft          = getDaysUntilDue(inst.dueDate);
+          const isPaid            = inst.status === "PAID";
+          const isOverdue         = inst.status === "OVERDUE";
+          const toggling          = togglingId === inst.id;
+          const isLast            = idx === totalCount - 1;
+          const isFrac            = isLast && hasFraction;
+          const label             = periodLabel(idx + 1, totalCount, resolvedMonths);
+          const livePenalty       = getLivePenalty(inst);
           const livePenaltyAmount = livePenalty?.amount ?? 0;
-          const totalWithPenalty = Number(inst.totalAmount) + livePenaltyAmount;
+          const totalWithPenalty  = Number(inst.totalAmount) + livePenaltyAmount;
 
           return (
             <div
@@ -197,7 +199,7 @@ export default function InstallmentSchedule({
                 )}
 
                 {/* Label */}
-                <div className="flex-shrink-0 w-24">
+                <div className="flex-shrink-0 w-28">
                   <span className={`text-xs font-semibold ${
                     isPaid      ? "text-green-700"
                     : isOverdue ? "text-red-600"
@@ -233,11 +235,8 @@ export default function InstallmentSchedule({
                 <div className="text-right flex-shrink-0">
                   {livePenaltyAmount > 0 ? (
                     <>
-                      {/* Strike through original, show new total */}
                       <p className="text-xs text-gray-400 line-through">{formatCurrency(inst.totalAmount)}</p>
-                      <p className={`text-sm font-bold text-orange-700`}>
-                        {formatCurrency(totalWithPenalty)}
-                      </p>
+                      <p className="text-sm font-bold text-orange-700">{formatCurrency(totalWithPenalty)}</p>
                       <p className="text-xs text-orange-500">+{formatCurrency(livePenaltyAmount)} penalty</p>
                     </>
                   ) : (
@@ -255,7 +254,7 @@ export default function InstallmentSchedule({
                 </div>
               </div>
 
-              {/* Penalty breakdown sub-row — shown inline when penalty is accruing */}
+              {/* Penalty breakdown sub-row */}
               {livePenaltyAmount > 0 && !isPaid && (
                 <div className="border-t border-orange-100 bg-orange-50/60 px-3 py-2 text-xs text-orange-600 flex justify-between items-start gap-2">
                   <span className="leading-relaxed">
