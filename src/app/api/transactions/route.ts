@@ -60,12 +60,9 @@ export async function POST(req: NextRequest) {
       counterparty, counterpartyEmail, notes, transactionDate, dueDate,
       isInstallment = false, installmentMonths, installmentMethod,
       installmentIntervalDays = 30, payAtEnd = false,
-      // Bi-monthly
       installmentFrequency = "MONTHLY",
       biMonthlyDay1, biMonthlyDay2,
-      // Penalty
       penaltyEnabled = false, penaltyGraceDays, penaltyType, penaltyAmount, penaltyFrequency,
-      // Email preference
       sendShareLink = true,
     } = body;
 
@@ -159,41 +156,51 @@ export async function POST(req: NextRequest) {
 
     if (!transaction) throw new Error("Transaction creation failed");
 
-    // ─── Send creation email (fire and forget) ────────────────────────────────
-    const shareUrl = sendShareLink
-      ? `${process.env.NEXT_PUBLIC_APP_URL}/share/${shareToken}`
-      : null;
+    // ── Fetch user separately as a safety fallback in case the include missed it ──
+    const user = (transaction as any).user ?? await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { name: true, email: true },
+    });
 
-    const penaltyRule = penaltyEnabled && penaltyGraceDays != null && penaltyType && penaltyAmount && penaltyFrequency
-      ? { graceDays: Number(penaltyGraceDays), penaltyType, penaltyAmount: Number(penaltyAmount), penaltyFrequency, baseAmount: endAmount }
-      : null;
+    if (!user?.email) {
+      console.error("[send-created] Could not resolve user email for userId:", session.user.id);
+    } else {
+      const shareUrl = sendShareLink
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/share/${shareToken}`
+        : null;
 
-    // Determine payment method label for the email
-    const paymentMethod = isInstallment
-      ? (installmentMethod ?? "INSTALLMENT")
-      : interestType === "PERCENT"
-        ? "STRAIGHT"
-        : "STRAIGHT";
+      const penaltyRule = penaltyEnabled && penaltyGraceDays != null && penaltyType && penaltyAmount && penaltyFrequency
+        ? { graceDays: Number(penaltyGraceDays), penaltyType, penaltyAmount: Number(penaltyAmount), penaltyFrequency, baseAmount: endAmount }
+        : null;
 
-    sendTransactionCreated({
-      to: (transaction as any).user.email,
-      counterpartyEmail: counterpartyEmail || null,
-      ownerName: (transaction as any).user.name,
-      counterparty: counterparty || "Unknown",
-      amount: endAmount,
-      type,
-      transactionId: transaction.id,
-      dueDate: txDueDate,
-      shareUrl,
-      penaltyRule,
-      // New fields
-      principalAmount: Number(amount),
-      interestRate: Number(interestRate),
-      interestType,
-      paymentMethod,
-      isInstallment,
-      installmentMonths: isInstallment ? Number(installmentMonths) : null,
-    }).catch((err) => console.error("[send-created]", err));
+      const paymentMethod = isInstallment ? (installmentMethod ?? "INSTALLMENT") : "STRAIGHT";
+
+      // ── Await the email so Vercel doesn't kill the function before it sends ──
+      try {
+        await sendTransactionCreated({
+          to: user.email,
+          counterpartyEmail: counterpartyEmail || null,
+          ownerName: user.name ?? "there",
+          counterparty: counterparty || "Unknown",
+          amount: endAmount,
+          type,
+          transactionId: transaction.id,
+          dueDate: txDueDate,
+          shareUrl,
+          penaltyRule,
+          principalAmount: Number(amount),
+          interestRate: Number(interestRate),
+          interestType,
+          paymentMethod,
+          isInstallment,
+          installmentMonths: isInstallment ? Number(installmentMonths) : null,
+        });
+        console.log(`[send-created] Email sent to ${user.email}${counterpartyEmail ? ` CC: ${counterpartyEmail}` : ""}`);
+      } catch (emailErr: any) {
+        // Log but don't fail the transaction — email is best-effort
+        console.error("[send-created] Failed to send email:", emailErr?.message ?? String(emailErr));
+      }
+    }
 
     const { user: _user, ...txData } = transaction as any;
     return NextResponse.json(txData, { status: 201 });
