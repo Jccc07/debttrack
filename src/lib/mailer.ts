@@ -1,23 +1,42 @@
 // src/lib/mailer.ts
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.RESEND_FROM ?? "DebtTrack <onboarding@resend.dev>";
+function createTransporter() {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) throw new Error(`Gmail credentials missing. GMAIL_USER=${!!user} GMAIL_APP_PASSWORD=${!!pass}`);
+  const options: SMTPTransport.Options = {
+    host: "smtp.gmail.com",
+    port: 587,          // 587 + STARTTLS is more reliable on Vercel than 465
+    secure: false,      // STARTTLS — upgrades after connection
+    auth: { user, pass },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+  };
+  return nodemailer.createTransport(options);
+}
+
+export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
+  try { await createTransporter().verify(); return { ok: true }; }
+  catch (err: any) { return { ok: false, error: err?.message ?? String(err) }; }
+}
 
 async function sendMail(options: {
   to: string;
-  cc?: string;
+  cc?: string | null;
   subject: string;
   html: string;
 }) {
-  const { error } = await resend.emails.send({
-    from: FROM,
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from: `"DebtTrack" <${process.env.GMAIL_USER}>`,
     to: options.to,
-    ...(options.cc ? { cc: [options.cc] } : {}),
+    ...(options.cc ? { cc: options.cc } : {}),
     subject: options.subject,
     html: options.html,
   });
-  if (error) throw new Error(`Resend error: ${(error as any)?.message ?? JSON.stringify(error)}`);
 }
 
 const appUrl = () => process.env.NEXT_PUBLIC_APP_URL ?? "https://debttrack-chi.vercel.app";
@@ -98,11 +117,7 @@ function transactionDetailsBlock(p: TransactionDetailProps): string {
 
   const methodLabel = p.isInstallment
     ? `Installment${p.installmentMonths ? ` (${p.installmentMonths} months)` : ""}`
-    : p.paymentMethod === "STRAIGHT"
-      ? "Straight (lump sum)"
-      : p.paymentMethod === "DIMINISHING"
-        ? "Diminishing balance"
-        : p.paymentMethod || "—";
+    : "Straight (lump sum)";
 
   const rows: [string, string][] = [
     ["Transaction type",  typeLabel],
@@ -154,10 +169,6 @@ interface CreatedParams  extends BaseParams {
   installmentMonths?: number | null;
 }
 
-function recipients(to: string, cc?: string | null) {
-  return { to, cc: cc ?? undefined };
-}
-
 // ─── 1. Transaction created ───────────────────────────────────────────────────
 export async function sendTransactionCreated(params: CreatedParams) {
   const {
@@ -168,7 +179,8 @@ export async function sendTransactionCreated(params: CreatedParams) {
   const verb = type === "LEND" ? "to" : "from";
 
   await sendMail({
-    ...recipients(to, counterpartyEmail),
+    to,
+    cc: counterpartyEmail,
     subject: `Transaction recorded: ${verb} ${counterparty}`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 16px;color:#1a1a1a;">
@@ -192,7 +204,8 @@ export async function sendDueDateReminder(params: DueDateParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, type, transactionId, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "from" : "to";
   await sendMail({
-    ...recipients(to, counterpartyEmail),
+    to,
+    cc: counterpartyEmail,
     subject: `Reminder: Payment due ${dueDate.toLocaleDateString("en-PH")}`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 16px;color:#1a1a1a;">
@@ -219,7 +232,8 @@ export async function sendDueToday(params: DueDateParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, type, transactionId, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "from" : "to";
   await sendMail({
-    ...recipients(to, counterpartyEmail),
+    to,
+    cc: counterpartyEmail,
     subject: `Payment due today: ${counterparty}`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 16px;color:#1a1a1a;">
@@ -246,7 +260,8 @@ export async function sendOverdueAlert(params: OverdueParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, type, transactionId, shareUrl, penaltyRule } = params;
   const verb = type === "LEND" ? "from" : "to";
   await sendMail({
-    ...recipients(to, counterpartyEmail),
+    to,
+    cc: counterpartyEmail,
     subject: `⚠️ Overdue Payment: ${counterparty}`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 16px;color:#1a1a1a;">
@@ -273,7 +288,8 @@ export async function sendPenaltyAlert(params: PenaltyParams) {
   const { to, counterpartyEmail, ownerName, counterparty, dueDate, amount, penaltyAmount, totalDue, type, transactionId, shareUrl } = params;
   const verb = type === "LEND" ? "from" : "to";
   await sendMail({
-    ...recipients(to, counterpartyEmail),
+    to,
+    cc: counterpartyEmail,
     subject: `🔥 Penalty applied: ${counterparty}`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 16px;color:#1a1a1a;">
@@ -309,7 +325,8 @@ export async function sendPaymentConfirmation(params: PaidParams) {
   const { to, counterpartyEmail, ownerName, counterparty, amount, type, transactionId, paidAt, shareUrl } = params;
   const verb = type === "LEND" ? "from" : "to";
   await sendMail({
-    ...recipients(to, counterpartyEmail),
+    to,
+    cc: counterpartyEmail,
     subject: `✅ Payment marked as paid: ${counterparty}`,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 16px;color:#1a1a1a;">
