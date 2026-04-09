@@ -1,12 +1,9 @@
 // src/app/api/test-email/route.ts
-// DIAGNOSTIC ONLY — lets you test Resend email without waiting for cron
-// Hit this URL in your browser after logging in:
+// DIAGNOSTIC ONLY — hit this URL after logging in to test email delivery:
 //   https://debttrack-chi.vercel.app/api/test-email
-// Remove or secure this route once email is confirmed working.
-
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { sendDueDateReminder } from "@/lib/mailer";
+import { verifySmtp, sendDueDateReminder } from "@/lib/mailer";
 
 export async function GET() {
   const session = await auth();
@@ -14,6 +11,18 @@ export async function GET() {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  // Step 1: verify SMTP credentials first
+  const verify = await verifySmtp();
+  if (!verify.ok) {
+    return NextResponse.json({
+      step: "smtp_verify",
+      ok: false,
+      error: verify.error,
+      hint: "Check GMAIL_USER and GMAIL_APP_PASSWORD env vars. Password should have no spaces.",
+    }, { status: 500 });
+  }
+
+  // Step 2: send a test email
   try {
     await sendDueDateReminder({
       to: session.user.email,
@@ -28,7 +37,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       message: `Test email sent to ${session.user.email}. Check your inbox (and spam).`,
-      resendFrom: process.env.RESEND_FROM ?? "onboarding@resend.dev",
+      smtpUser: process.env.GMAIL_USER,
     });
   } catch (err: any) {
     return NextResponse.json({
