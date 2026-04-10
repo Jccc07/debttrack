@@ -199,7 +199,6 @@ export async function sendTransactionCreated(params: CreatedParams) {
         ["Transaction type", typeLabel],
         ["Interest rate",    interestLabel],
         ["Payment duration", `${installmentMonths} month${Number(installmentMonths) !== 1 ? "s" : ""}`],
-        ["Total to repay",   fmt(amount)],
       ])}`;
   } else {
     const dueDateStr = dueDate
@@ -222,7 +221,10 @@ export async function sendTransactionCreated(params: CreatedParams) {
       ${card(`
         ${greeting(ownerName)}
         <p style="margin:0 0 16px;font-size:14px;color:#4b5563;">
-          A new transaction has been recorded — <strong>${fmt(amount)}</strong> ${verb} <strong>${counterparty}</strong>.
+          ${isInstallment
+            ? `A new installment transaction has been recorded ${verb} <strong>${counterparty}</strong>.`
+            : `A new transaction has been recorded — <strong>${fmt(amount)}</strong> ${verb} <strong>${counterparty}</strong>.`
+          }
         </p>
         ${detailsHtml}
         ${penaltyBlock(penaltyRule)}
